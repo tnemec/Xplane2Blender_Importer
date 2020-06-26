@@ -33,6 +33,11 @@
 # Currently, this can import the model geometry and textures
 # TODO: import ANIM and datarefs
 
+# Orginal script: https://github.com/daveprue/XPlane2Blender
+
+# rotations expressed in Y -Z X
+
+
 import bpy
 import mathutils
 from mathutils import Vector
@@ -65,7 +70,7 @@ class xplane11import(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
     
-    def createMeshFromData(self, name, origin, verts, faces, mat, uvs, normals):
+    def createMeshFromData(self, name, origin, verts, faces, mat, uvs, normals, obKeyframes):
         # Create mesh and object
         me = bpy.data.meshes.new(name+'Mesh')
         ob = bpy.data.objects.new(name, me)
@@ -103,6 +108,11 @@ class xplane11import(bpy.types.Operator):
             # Assign material to object
             ob.data.materials.append(mat)
 
+
+        # for idx, kf in enumerate(obKeyframes):
+        #     ob.location = kf
+        #     ob.keyframe_insert(data_path="location", frame=idx+1)
+
         # cleanup loose vertexes
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_all(action='DESELECT')
@@ -113,7 +123,7 @@ class xplane11import(bpy.types.Operator):
 
         return ob
         
-        
+
     def run(self, origo):
         # parse file
         f = open(self.filepath, 'r')
@@ -126,9 +136,11 @@ class xplane11import(bpy.types.Operator):
         uv = []
         material = 0
         removed_faces_regions = []
-        origin_temp = 0
-        anim_nesting = 0 # How many levels of ANIM_begin/ANIM_end pairs there are
+        origin_temp = Vector( ( 0, 0, 0 ) )
+        anim_nesting = 0
+        a_trans = [ origin_temp ]
         trans_available = False;
+        obKeyframes = []
         objects = []
         for lineStr in lines:
             line = lineStr.split()
@@ -186,19 +198,26 @@ class xplane11import(bpy.types.Operator):
                 faces.extend(map(int, line[1:]))
                 
             if(line[0] == 'ANIM_begin'):
-                anim_nesting+=1
+                anim_nesting += 1
                 
-            # Now search for ANIM_trans and corresponding TRIS
             if(line[0] == 'ANIM_trans'):
                 trans_x = float(line[1])
                 trans_y = (float(line[3]) * -1)
                 trans_z = float(line[2])
-                origin_temp = Vector( (trans_x, trans_y, trans_z) )
+                trans_x2 = float(line[4])
+                trans_y2 = (float(line[6]) * -1)
+                trans_z2 = float(line[5])
+                o_t = Vector( (trans_x, trans_y, trans_z) )
+                o_t2 = Vector( (trans_x2, trans_y2, trans_z2) )                        
+                origin_temp = origin_temp + o_t
                 trans_available = True
+
+                #if(len(line) == 10):
+                    # has location keyframe
             
             if(line[0] == 'ANIM_end'):
-                anim_nesting-=1
-                if(anim_nesting == 0): #lets reset the animation states as we left the anim definition
+                anim_nesting -= 1
+                if(anim_nesting == 0):
                     trans_available = False
                 
             if(line[0] == 'TRIS'):
@@ -222,7 +241,7 @@ class xplane11import(bpy.types.Operator):
         counter = 0
         for orig, obj in objects:
             obj_tmp = tuple( zip(*[iter(obj)]*3) )
-            self.createMeshFromData('OBJ%d' % counter, orig, verts, obj_tmp, material, uv, normals)
+            self.createMeshFromData('OBJ%d' % counter, orig, verts, obj_tmp, material, uv, normals, obKeyframes)
             counter+=1
         
         return
