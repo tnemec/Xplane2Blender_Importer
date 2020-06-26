@@ -77,13 +77,36 @@ class xplane11import(bpy.types.Operator):
 
     def createKeyframes(self, obKeyframes, ob):
         count = -1
+        dataref = ''
+        dataref_index = 0
         for kf in obKeyframes:
+            print(kf)            
+            # kf = ('loc', o_t, param1, dataref)
             count+= 2
-            print(kf)
+            bpy.context.scene.frame_current = count
             if(kf[0] == 'loc'):
+                # first create the Blender keyframes
                 ob.location = kf[1]
-                ob.keyframe_insert(data_path='location',frame= count)
-            #     ('loc', o_t, param1, dataref)
+                ob.keyframe_insert(data_path='location', frame=count)
+
+            try:
+                # add the xplane dataref
+                if(dataref == ''):
+                    dataref = kf[3]
+                    # add only once for the loop
+                    ob.xplane.datarefs.add()
+                    dataref_index = len(ob.xplane.datarefs) -1
+                    ob.xplane.datarefs[dataref_index].path = dataref
+
+                # set the dataref value
+                ob.xplane.datarefs[dataref_index].value = kf[2]
+                # add the xplane dataref keyframe
+                bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
+
+            except Exception as e:
+                print('Failed to create XPlane dataref. Make sure you have the XPlane2Blender plugin enabled.')
+                print(e)
+
         return 1
     
     def createMeshFromData(self, name, origin, verts, faces, mat, uvs, normals, obKeyframes):
