@@ -40,7 +40,7 @@
 
 import bpy
 import mathutils
-from mathutils import Vector
+from mathutils import Vector, Euler
 import itertools
 import os
 
@@ -90,7 +90,7 @@ class xplane11import(bpy.types.Operator):
             bpy.context.scene.frame_current = count
             if(kf[0] == 'loc'):
                 # kf = ('loc', o_t, param1, dataref)
-                # first create the Blender keyframes
+                # first create the Blender keyframe
                 ob.location = kf[1]
                 ob.keyframe_insert(data_path='location', frame=count)
 
@@ -110,6 +110,38 @@ class xplane11import(bpy.types.Operator):
                 except Exception as e:
                     print(self.getMessage('dataref'))
                     print(e)
+
+            if(kf[0] == 'rot'):
+                # kf = ('rot',axis,value,angle,dataref)
+                # create the Blender keyframe
+                try:
+                    axis = kf[1]
+                    angle = kf[2]
+                    # multiply the axis with the angle to get the euler rotation
+                    # probably a cleaner way to do this
+                    euler = ( axis[0] * angle, axis[1] * angle, axis[2] * angle ) 
+                    ob.rotation_euler = mathutils.Euler(euler, 'XYZ')
+                    ob.keyframe_insert(data_path='rotation_euler', frame=count)
+                    try:
+                        # add the xplane dataref
+                        if(dataref != kf[4]):
+                            dataref = kf[4]
+                            # add only once as long as the dataref doesn't change
+                            ob.xplane.datarefs.add()
+                            dataref_index = len(ob.xplane.datarefs) -1
+                            ob.xplane.datarefs[dataref_index].path = dataref
+
+                        # set the dataref value
+                        ob.xplane.datarefs[dataref_index].value = kf[2]
+                        # add the xplane dataref keyframe
+                        bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
+                    except Exception as e:
+                        print(self.getMessage('dataref'))
+                        print(e)
+
+                except Exception as e:
+                    print(e)
+
 
             if(kf[0] == 'hide' or kf[0] == 'show'):
                 # kf = ('show', v1, v2, dataref)
@@ -134,6 +166,8 @@ class xplane11import(bpy.types.Operator):
         ob = bpy.data.objects.new(name, me)
         ob.location = origin
         ob.show_name = False
+        print(name)
+        print(origin)
         
         # Link object to default collection and make active
         bpy.data.collections[0].objects.link(ob)
@@ -197,7 +231,7 @@ class xplane11import(bpy.types.Operator):
         origin_temp = Vector( ( 0, 0, 0 ) )
         anim_nesting = 0
         a_trans = [origin_temp]
-        trans_available = False;
+        trans_available = False
         trans1 = Vector( ( 0, 0, 0 ) )
         trans2 = Vector( ( 0, 0, 0 ) )
         obKeyframes = []
@@ -281,7 +315,7 @@ class xplane11import(bpy.types.Operator):
                 trans_available = True
 
                 if(len(line) == 10):
-                    # has location keyframe
+                    # has a dataref
                     dataref = line[9]
                     if(dataref != 'none'):
                         # ignore 'none'
@@ -300,6 +334,38 @@ class xplane11import(bpy.types.Operator):
                 # ANIM_trans_key <value> <x> <y> <z>
                 vec = Vector( (float(line[2]), (float(line[4]) * -1), float(line[3])) )
                 tempKeyframe = ( tempKeyframe[0], vec, float(line[1]), tempKeyframe[3])
+                obKeyframes.append( tempKeyframe )
+
+            if(line[0] == 'ANIM_rotate'):
+                # ANIM_rotate <x> <y> <z> <r1> <r2> <v1> <v2> [dataref]
+                # we'll always use XYZ Euler as the rotation mode as this seems to be the Blender default
+
+                #TODO: this breaks because the origin is not in the right place
+                # I think we need to move the location first based on the previous trans, then rotate
+                if(len(line) == 9):
+                    # has a dataref
+                    dataref = line[8]
+                    if(dataref != 'none'):
+                        # ignore 'none'
+                        axis = (float(line[1]), (float(line[3]) * -1), float(line[2]))
+                        r1 = float(line[4])
+                        r2 = float(line[5])
+                        v1 = float(line[6])
+                        v2 = float(line[7])                        
+                        # add two keyframes
+                        obKeyframes.append( ('rot', axis, v1, r1, dataref) )
+                        obKeyframes.append( ('rot', axis, v2, r2, dataref) )
+
+            if(line[0] == 'ANIM_rotate_begin'):
+                # ANIM_rotate_begin <x> <y> <z> <dataref>
+                axis = (float(line[1]), (float(line[3]) * -1), float(line[2]))
+                dataref = line[4]
+                # create temp keyframe with some of the params
+                tempKeyframe = ('rot',axis,0.0,0.0,dataref)
+
+            if(line[0] == 'ANIM_rotate_key'):
+                # ANIM_rotate_key <value> <angle>
+                tempKeyframe = ( tempKeyframe[0], tempKeyframe[1], float(line[1]), float(line[2]), tempKeyframe[4])
                 obKeyframes.append( tempKeyframe )
 
             if(line[0] == 'ANIM_hide'):
@@ -321,7 +387,6 @@ class xplane11import(bpy.types.Operator):
                 # clear some vars
                 trans1 = Vector( ( 0, 0, 0 ) )
                 trans2 = Vector( ( 0, 0, 0 ) )
-                tempKeyframe = ()
                 if(anim_nesting == 0):
                     trans_available = False
                     a_trans = [Vector((0,0,0))]
@@ -334,6 +399,7 @@ class xplane11import(bpy.types.Operator):
                     obj_origin = origin_temp
                 objects.append( (debugLabel, obj_origin, obj_lst, obKeyframes) )
                 obKeyframes = []
+                tempKeyframe= ()
         
         counter = 0
         for label, orig, obj, kf in objects:
