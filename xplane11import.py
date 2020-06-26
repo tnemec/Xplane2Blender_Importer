@@ -179,7 +179,10 @@ class xplane11import(bpy.types.Operator):
         anim_nesting = 0
         a_trans = [origin_temp]
         trans_available = False;
+        trans1 = Vector( ( 0, 0, 0 ) )
+        trans2 = Vector( ( 0, 0, 0 ) )
         obKeyframes = []
+        tempKeyframe = ()
         debugLabel = ''
         objects = []
         for lineStr in lines:
@@ -243,6 +246,7 @@ class xplane11import(bpy.types.Operator):
                 
             if(line[0] == 'ANIM_begin'):
                 anim_nesting += 1
+                # if nested more than one deep, we should make an armature instead of an object
                 
             if(line[0] == 'ANIM_trans'):
                 trans_x = float(line[1])
@@ -251,10 +255,10 @@ class xplane11import(bpy.types.Operator):
                 trans_x2 = float(line[4])
                 trans_y2 = (float(line[6]) * -1)
                 trans_z2 = float(line[5])
-                o_t = Vector( (trans_x, trans_y, trans_z) )
-                o_t2 = Vector( (trans_x2, trans_y2, trans_z2) )              
-                origin_temp = o_t + a_trans[-1]
-                a_trans.append(o_t) 
+                trans1 = Vector( (trans_x, trans_y, trans_z) )
+                trans2 = Vector( (trans_x2, trans_y2, trans_z2) )              
+                origin_temp = trans1 + a_trans[-1]
+                a_trans.append(trans1) 
                 trans_available = True
 
                 if(len(line) == 10):
@@ -265,11 +269,26 @@ class xplane11import(bpy.types.Operator):
                         param1 = float(line[7])
                         param2 = float(line[8])
                         # add two keyframes
-                        obKeyframes.append( ('loc', o_t, param1, dataref) )
-                        obKeyframes.append( ('loc', o_t2, param2, dataref) )
+                        obKeyframes.append( ('loc', trans1, param1, dataref) )
+                        obKeyframes.append( ('loc', trans2, param2, dataref) )
+
+            if(line[0] == 'ANIM_trans_begin'):
+                dataref = line[1]
+                # start a new keyframe tuple, we will read the position and value later
+                tempKeyframe = ('loc',0,0,dataref)
+
+            if(line[0] == 'ANIM_trans_key'):
+                # ANIM_trans_key <value> <x> <y> <z>
+                vec = Vector( (float(line[2]), (float(line[4]) * -1), float(line[3])) )
+                tempKeyframe = ( tempKeyframe[0], vec, float(line[1]), tempKeyframe[3])
+                obKeyframes.append( tempKeyframe )
             
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
+                # clear some vars
+                trans1 = Vector( ( 0, 0, 0 ) )
+                trans2 = Vector( ( 0, 0, 0 ) )
+                tempKeyframe = ()
                 if(anim_nesting == 0):
                     trans_available = False
                     a_trans = [Vector((0,0,0))]
