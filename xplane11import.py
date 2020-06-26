@@ -74,6 +74,17 @@ class xplane11import(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
+
+    def createKeyframes(self, obKeyframes, ob):
+        count = -1
+        for kf in obKeyframes:
+            count+= 2
+            print(kf)
+            if(kf[0] == 'loc'):
+                ob.location = kf[1]
+                ob.keyframe_insert(data_path='location',frame= count)
+            #     ('loc', o_t, param1, dataref)
+        return 1
     
     def createMeshFromData(self, name, origin, verts, faces, mat, uvs, normals, obKeyframes):
         # Create mesh and object
@@ -113,10 +124,10 @@ class xplane11import(bpy.types.Operator):
             # Assign material to object
             ob.data.materials.append(mat)
 
-
-        # for idx, kf in enumerate(obKeyframes):
-        #     ob.location = kf
-        #     ob.keyframe_insert(data_path="location", frame=idx+1)
+      
+        if(len(obKeyframes)):
+            #print(obKeyframes)
+            self.createKeyframes(obKeyframes, ob)
 
         # cleanup loose vertexes
         bpy.ops.object.mode_set(mode='EDIT')
@@ -223,8 +234,16 @@ class xplane11import(bpy.types.Operator):
                 a_trans.append(o_t) 
                 trans_available = True
 
-                #if(len(line) == 10):
+                if(len(line) == 10):
                     # has location keyframe
+                    dataref = line[9]
+                    if(dataref != 'none'):
+                        # ignore 'none'
+                        param1 = float(line[7])
+                        param2 = float(line[8])
+                        # add two keyframes
+                        obKeyframes.append( ('loc', o_t, param1, dataref) )
+                        obKeyframes.append( ('loc', o_t2, param2, dataref) )
             
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
@@ -238,13 +257,14 @@ class xplane11import(bpy.types.Operator):
                 obj_lst = faces[tris_offset:tris_offset+tris_count]
                 if(trans_available):
                     obj_origin = origin_temp
-                objects.append( (debugLabel, obj_origin, obj_lst) )
+                objects.append( (debugLabel, obj_origin, obj_lst, obKeyframes) )
+                obKeyframes = []
         
         counter = 0
-        for label, orig, obj in objects:
+        for label, orig, obj, kf in objects:
             obj_tmp = tuple( zip(*[iter(obj)]*3) )
             obName = label if (label != '') else 'OBJ%d' % counter
-            self.createMeshFromData(obName, orig, verts, obj_tmp, material, uv, normals, obKeyframes)
+            self.createMeshFromData(obName, orig, verts, obj_tmp, material, uv, normals, kf)
             counter+=1
     
         return
