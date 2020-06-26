@@ -61,8 +61,13 @@ class xplane11import(bpy.types.Operator):
 
     filepath = bpy.props.StringProperty(subtype="FILE_PATH")
 
+
+
     def execute(self, context):
         print("execute %s" % self.filepath)
+        # rename collection to match filename
+        bpy.data.collections[0].name = self.filepath.split('\\')[-1].split('.')[0]
+        # do the import      
         self.run((0,0,0))
         return {"FINISHED"}
     
@@ -250,7 +255,7 @@ class xplane11import(bpy.types.Operator):
             obName = label if (label != '') else 'OBJ%d' % counter
             self.createMeshFromData(obName, orig, verts, obj_tmp, material, uv, normals, obKeyframes)
             counter+=1
-        
+    
         return
         
 def menu_func(self, context):
