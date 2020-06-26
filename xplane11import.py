@@ -62,7 +62,6 @@ class xplane11import(bpy.types.Operator):
     filepath = bpy.props.StringProperty(subtype="FILE_PATH")
 
 
-
     def execute(self, context):
         print("execute %s" % self.filepath)
         # rename collection to match filename
@@ -75,37 +74,57 @@ class xplane11import(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
+    def getMessage(self, messageType):
+        if(messageType == 'dataref'):
+            return 'Failed to create XPlane dataref. Make sure you have the XPlane2Blender plugin enabled.'
+
+        return ''
+
     def createKeyframes(self, obKeyframes, ob):
         count = -1
         dataref = ''
         dataref_index = 0
         for kf in obKeyframes:
-            print(kf)            
-            # kf = ('loc', o_t, param1, dataref)
+            #print(kf)            
             count+= 2
             bpy.context.scene.frame_current = count
             if(kf[0] == 'loc'):
+                # kf = ('loc', o_t, param1, dataref)
                 # first create the Blender keyframes
                 ob.location = kf[1]
                 ob.keyframe_insert(data_path='location', frame=count)
 
-            try:
-                # add the xplane dataref
-                if(dataref == ''):
+                try:
+                    # add the xplane dataref
+                    if(dataref != kf[3]):
+                        dataref = kf[3]
+                        # add only once as long as the dataref doesn't change
+                        ob.xplane.datarefs.add()
+                        dataref_index = len(ob.xplane.datarefs) -1
+                        ob.xplane.datarefs[dataref_index].path = dataref
+
+                    # set the dataref value
+                    ob.xplane.datarefs[dataref_index].value = kf[2]
+                    # add the xplane dataref keyframe
+                    bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
+                except Exception as e:
+                    print(self.getMessage('dataref'))
+                    print(e)
+
+            if(kf[0] == 'hide' or kf[0] == 'show'):
+                # kf = ('show', v1, v2, dataref)
+                try:
                     dataref = kf[3]
-                    # add only once for the loop
                     ob.xplane.datarefs.add()
                     dataref_index = len(ob.xplane.datarefs) -1
                     ob.xplane.datarefs[dataref_index].path = dataref
-
-                # set the dataref value
-                ob.xplane.datarefs[dataref_index].value = kf[2]
-                # add the xplane dataref keyframe
-                bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
-
-            except Exception as e:
-                print('Failed to create XPlane dataref. Make sure you have the XPlane2Blender plugin enabled.')
-                print(e)
+                    ob.xplane.datarefs[dataref_index].anim_type = kf[0]            
+                    # set two dataref values
+                    ob.xplane.datarefs[dataref_index].show_hide_v1 = kf[1]
+                    ob.xplane.datarefs[dataref_index].show_hide_v2 = kf[2]
+                except Exception as e:
+                    print(self.getMessage('dataref'))
+                    print(e)
 
         return 1
     
@@ -282,6 +301,20 @@ class xplane11import(bpy.types.Operator):
                 vec = Vector( (float(line[2]), (float(line[4]) * -1), float(line[3])) )
                 tempKeyframe = ( tempKeyframe[0], vec, float(line[1]), tempKeyframe[3])
                 obKeyframes.append( tempKeyframe )
+
+            if(line[0] == 'ANIM_hide'):
+                # ANIM_hide <v1> <v2> <dataref>
+                v1 = float(line[1])
+                v2 = float(line[2])
+                dataref = line[3]
+                obKeyframes.append( ('hide', v1, v2, dataref) )
+
+            if(line[0] == 'ANIM_show'):
+                # ANIM_show <v1> <v2> <dataref>
+                v1 = float(line[1])
+                v2 = float(line[2])
+                dataref = line[3]
+                obKeyframes.append( ('show', v1, v2, dataref) )                
             
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
