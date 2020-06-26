@@ -143,7 +143,7 @@ class xplane11import(bpy.types.Operator):
         removed_faces_regions = []
         origin_temp = Vector( ( 0, 0, 0 ) )
         anim_nesting = 0
-        a_trans = []
+        a_trans = [origin_temp]
         trans_available = False;
         obKeyframes = []
         debugLabel = ''
@@ -218,9 +218,9 @@ class xplane11import(bpy.types.Operator):
                 trans_y2 = (float(line[6]) * -1)
                 trans_z2 = float(line[5])
                 o_t = Vector( (trans_x, trans_y, trans_z) )
-                o_t2 = Vector( (trans_x2, trans_y2, trans_z2) )
-                a_trans.append(o_t)                       
-                origin_temp = o_t
+                o_t2 = Vector( (trans_x2, trans_y2, trans_z2) )              
+                origin_temp = o_t + a_trans[-1]
+                a_trans.append(o_t) 
                 trans_available = True
 
                 #if(len(line) == 10):
@@ -230,24 +230,15 @@ class xplane11import(bpy.types.Operator):
                 anim_nesting -= 1
                 if(anim_nesting == 0):
                     trans_available = False
+                    a_trans = [Vector((0,0,0))]
                 
             if(line[0] == 'TRIS'):
                 obj_origin = Vector( origo )
                 tris_offset, tris_count = int(line[1]), int(line[2])
                 obj_lst = faces[tris_offset:tris_offset+tris_count]
-                # removed_faces_regions.append( (tris_offset, tris_offset+tris_count) )
                 if(trans_available):
                     obj_origin = origin_temp
                 objects.append( (debugLabel, obj_origin, obj_lst) )
-        
-        # offset = 0
-        # for start, end in removed_faces_regions:
-        #     faces[start-offset:end-offset] = [] # we moved this part to another place, so remove here
-        #     offset += (end - start)
-            
-        # #now all the objects are on objects array, the leftover is in faces array
-        # if(len(faces) > 0):
-        #     objects.insert(0, (Vector(origo), faces) )
         
         counter = 0
         for label, orig, obj in objects:
