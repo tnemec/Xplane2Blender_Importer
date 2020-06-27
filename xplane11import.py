@@ -39,6 +39,7 @@
 
 
 import bpy
+import math
 import mathutils
 from mathutils import Vector, Euler
 import itertools
@@ -84,8 +85,7 @@ class xplane11import(bpy.types.Operator):
         count = -1
         dataref = ''
         dataref_index = 0
-        for kf in obKeyframes:
-            #print(kf)            
+        for kf in obKeyframes:           
             count+= 2
             bpy.context.scene.frame_current = count
             if(kf[0] == 'loc'):
@@ -116,10 +116,12 @@ class xplane11import(bpy.types.Operator):
                 # create the Blender keyframe
                 try:
                     axis = kf[1]
-                    angle = kf[2]
+                    angle = kf[3]
+                    # Euler rotation is in radians
+                    angleRad = math.radians(angle)
                     # multiply the axis with the angle to get the euler rotation
                     # probably a cleaner way to do this
-                    euler = ( axis[0] * angle, axis[1] * angle, axis[2] * angle ) 
+                    euler = ( (axis[0] * angleRad), (axis[1] * angleRad), (axis[2] * angleRad) )
                     ob.rotation_euler = mathutils.Euler(euler, 'XYZ')
                     ob.keyframe_insert(data_path='rotation_euler', frame=count)
                     try:
@@ -160,20 +162,22 @@ class xplane11import(bpy.types.Operator):
 
         return 1
     
-    def createMeshFromData(self, name, origin, verts, faces, mat, uvs, normals, obKeyframes):
+    def createMeshFromData(self, name, origin, rot_origin, verts, faces, mat, uvs, normals, obKeyframes):
         # Create mesh and object
         me = bpy.data.meshes.new(name+'Mesh')
         ob = bpy.data.objects.new(name, me)
+        #ob.location = Vector((0,0,0))
         ob.location = origin
         ob.show_name = False
-        print(name)
-        print(origin)
+        # print(name)
+        # print(origin)
+        # print(rot_origin)
         
         # Link object to default collection and make active
         bpy.data.collections[0].objects.link(ob)
         ob.select_set(True)
-        bpy.context.view_layer.objects.active = ob
-        
+        bpy.context.view_layer.objects.active = ob       
+
         # Create mesh from given verts, faces.
         me.from_pydata(verts, [], faces)
 
@@ -186,6 +190,12 @@ class xplane11import(bpy.types.Operator):
         # Update mesh with new data
         me.calc_normals()
         me.update(calc_edges=True)
+
+        if(rot_origin != origin):
+            # this moves the mesh to align the rotation axis
+            ob.data.transform(mathutils.Matrix.Translation(-rot_origin))
+            ob.matrix_world.translation += rot_origin
+
 
         # Create uv layer
         uvlayer = me.uv_layers.new()
@@ -229,6 +239,7 @@ class xplane11import(bpy.types.Operator):
         material = 0
         removed_faces_regions = []
         origin_temp = Vector( ( 0, 0, 0 ) )
+        rot_origin = Vector( ( 0, 0, 0 ) )
         anim_nesting = 0
         a_trans = [origin_temp]
         trans_available = False
@@ -273,7 +284,9 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == '#'):
                 # save as debug label
-                debugLabel = '_'.join(line[1:])
+                newLabel = '_'.join(line[1:])
+                if(debugLabel != newLabel):
+                    debugLabel = newLabel
 
 
             if(line[0] == 'VT'):
@@ -339,15 +352,17 @@ class xplane11import(bpy.types.Operator):
             if(line[0] == 'ANIM_rotate'):
                 # ANIM_rotate <x> <y> <z> <r1> <r2> <v1> <v2> [dataref]
                 # we'll always use XYZ Euler as the rotation mode as this seems to be the Blender default
+                if(origin_temp != origo):
+                    # for objects with ANIM_trans before rotation, we need to store as the rotation origin
+                    rot_origin = origin_temp
 
-                #TODO: this breaks because the origin is not in the right place
-                # I think we need to move the location first based on the previous trans, then rotate
                 if(len(line) == 9):
                     # has a dataref
                     dataref = line[8]
                     if(dataref != 'none'):
                         # ignore 'none'
-                        axis = (float(line[1]), (float(line[3]) * -1), float(line[2]))
+                        # axis gets mapped as XZY because that will be Blenders XYZ
+                        axis = (float(line[1]), float(line[3]), float(line[2]))
                         r1 = float(line[4])
                         r2 = float(line[5])
                         v1 = float(line[6])
@@ -358,6 +373,11 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'ANIM_rotate_begin'):
                 # ANIM_rotate_begin <x> <y> <z> <dataref>
+
+                if(origin_temp != origo):
+                    # for objects with ANIM_trans before rotation, we need to store as the rotation origin
+                    rot_origin = origin_temp
+
                 axis = (float(line[1]), (float(line[3]) * -1), float(line[2]))
                 dataref = line[4]
                 # create temp keyframe with some of the params
@@ -385,11 +405,15 @@ class xplane11import(bpy.types.Operator):
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
                 # clear some vars
+                use_trans = False
                 trans1 = Vector( ( 0, 0, 0 ) )
                 trans2 = Vector( ( 0, 0, 0 ) )
                 if(anim_nesting == 0):
                     trans_available = False
                     a_trans = [Vector((0,0,0))]
+                else:
+                    if(len(a_trans)):
+                        temp = a_trans.pop()  
                 
             if(line[0] == 'TRIS'):
                 obj_origin = Vector( origo )
@@ -397,15 +421,18 @@ class xplane11import(bpy.types.Operator):
                 obj_lst = faces[tris_offset:tris_offset+tris_count]
                 if(trans_available):
                     obj_origin = origin_temp
-                objects.append( (debugLabel, obj_origin, obj_lst, obKeyframes) )
+                    # TODO: rot_origin still not correct for nested objects
+                objects.append( (debugLabel, obj_origin, rot_origin, obj_lst, obKeyframes) )
+                debugLabel = ''
                 obKeyframes = []
                 tempKeyframe= ()
+                rot_origin = Vector((0,0,0))
         
         counter = 0
-        for label, orig, obj, kf in objects:
+        for label, orig, rot_orig, obj, kf in objects:
             obj_tmp = tuple( zip(*[iter(obj)]*3) )
             obName = label if (label != '') else 'OBJ%d' % counter
-            self.createMeshFromData(obName, orig, verts, obj_tmp, material, uv, normals, kf)
+            self.createMeshFromData(obName, orig, rot_orig, verts, obj_tmp, material, uv, normals, kf)
             counter+=1
     
         return
