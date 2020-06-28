@@ -61,12 +61,15 @@ class xplane11import(bpy.types.Operator):
     bl_idname = "object.xplane11import"
 
     filepath = bpy.props.StringProperty(subtype="FILE_PATH")
+    collection = 0
 
 
     def execute(self, context):
+        global collection
         print("execute %s" % self.filepath)
-        # rename collection to match filename
-        bpy.data.collections[0].name = self.filepath.split('\\')[-1].split('.')[0]
+        # create new collection to match filename
+        collection = bpy.data.collections.new(self.filepath.split('\\')[-1].split('.')[0])
+        bpy.context.scene.collection.children.link(collection)
         # do the import      
         self.run((0,0,0))
         return {"FINISHED"}
@@ -78,8 +81,8 @@ class xplane11import(bpy.types.Operator):
     def getMessage(self, messageType):
         if(messageType == 'dataref'):
             return 'Failed to create XPlane dataref. Make sure you have the XPlane2Blender plugin enabled.'
-
         return ''
+
 
     def createKeyframes(self, obKeyframes, ob):
         count = -1
@@ -87,7 +90,7 @@ class xplane11import(bpy.types.Operator):
         dataref_index = 0
         for kf in obKeyframes:           
             count+= 2
-            bpy.context.scene.frame_current = count
+            bpy.context.scene.frame_set(count)
             if(kf[0] == 'loc'):
                 # kf = ('loc', o_t, param1, dataref)
                 # first create the Blender keyframe
@@ -160,6 +163,7 @@ class xplane11import(bpy.types.Operator):
                     print(self.getMessage('dataref'))
                     print(e)
 
+        bpy.context.scene.frame_set(1)
         return 1
     
     def createMeshFromData(self, name, origin, rot_origin, verts, faces, mat, uvs, normals, obKeyframes):
@@ -173,10 +177,13 @@ class xplane11import(bpy.types.Operator):
         # print(origin)
         # print(rot_origin)
         
-        # Link object to default collection and make active
-        bpy.data.collections[0].objects.link(ob)
+        # Link object to collection and make active
+        collection.objects.link(ob)
         ob.select_set(True)
-        bpy.context.view_layer.objects.active = ob       
+        bpy.context.view_layer.objects.active = ob
+
+        # Apply shade smooth
+        bpy.ops.object.shade_smooth()    
 
         # Create mesh from given verts, faces.
         me.from_pydata(verts, [], faces)
@@ -283,6 +290,8 @@ class xplane11import(bpy.types.Operator):
                 material.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
 
             if(line[0] == '#'):
+                # if you export with debug mode, labels will be added for each object
+                # we can then name the imported objects better
                 # save as debug label
                 newLabel = '_'.join(line[1:])
                 if(debugLabel != newLabel):
