@@ -39,6 +39,7 @@
 
 
 import bpy
+import bmesh
 import math
 import mathutils
 from mathutils import Vector, Euler
@@ -165,8 +166,31 @@ class xplane11import(bpy.types.Operator):
 
         bpy.context.scene.frame_set(1)
         return 1
+
+    def createArmature(self, name, origin):
+        #Create armature and armature object
+        arm = bpy.data.armatures.new( name + 'Arm')
+        ob = bpy.data.objects.new( name + 'Armature', arm)
+        ob.location = origin
+        #Link armature object to our collection
+        collection.objects.link(ob)
+
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.mode_set(mode='EDIT', toggle=False)
+
+        #Make a bone
+        bone = ob.data.edit_bones.new('Bone')
+        bone.head = (0,0,0)
+        bone.tail = (0,0,0.2)
+
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+        bpy.context.object.pose.bones["Bone"].rotation_mode = 'XYZ'
+
+        return ob
     
-    def createMeshFromData(self, name, origin, rot_origin, verts, faces, mat, uvs, normals, obKeyframes):
+    def createMesh(self, name, origin, rot_origin, verts, faces, mat, uvs, normals, obKeyframes):
         # Create mesh and object
         me = bpy.data.meshes.new(name+'Mesh')
         ob = bpy.data.objects.new(name, me)
@@ -217,21 +241,50 @@ class xplane11import(bpy.types.Operator):
             # Assign material to object
             ob.data.materials.append(mat)
 
-      
+        # cleanup loose vertexes
+        try:
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='DESELECT')
+            bpy.ops.mesh.select_mode(type='VERT')
+            bpy.ops.mesh.select_loose()
+            bpy.ops.mesh.delete(type='VERT')
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except Exception as e:
+            print(ob.name)
+            print(e)
+
+        # if(len(children)):
+        #     # this is a child object, make a new armature as the parent
+        #     # get the index of the parent
+        #     parentIdx = 0
+        #     for index, item in enumerate(collection.objects):
+        #         if item.name == ob.name and item.type != 'ARMATURE':
+        #             parentIdx = index - nest
+        #             break
+
+        #     if(parentIdx >= 0):
+        #         obParent = collection.objects[parentIdx]
+        #         arm = self.createArmature(obParent.name, obParent.location)
+        #         # make the original object a child of the armature
+        #         obParent.parent = arm
+
+
         if(len(obKeyframes)):
             #print(obKeyframes)
             self.createKeyframes(obKeyframes, ob)
 
-        # cleanup loose vertexes
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action='DESELECT')
-        bpy.ops.mesh.select_mode(type='VERT')
-        bpy.ops.mesh.select_loose()
-        bpy.ops.mesh.delete(type='VERT')
-        bpy.ops.object.mode_set(mode='OBJECT')
-
         return ob
-        
+
+    def createBlenderObject(self, index, type, label, orig, rot_orig, verts, faces, mat, uv, nrm, kf):
+        name = label if (label != '') else 'OBJ%d' % index
+        if(type == 'OBJECT'):
+            self.createMesh(name, orig, rot_orig, verts, faces, mat, uv, nrm, kf)
+        else:
+            # create armature
+            print('arm')
+
+        return 1 
+
 
     def run(self, origo):
         # parse file
@@ -244,7 +297,6 @@ class xplane11import(bpy.types.Operator):
         normals = []
         uv = []
         material = 0
-        removed_faces_regions = []
         origin_temp = Vector( ( 0, 0, 0 ) )
         rot_origin = Vector( ( 0, 0, 0 ) )
         anim_nesting = 0
@@ -256,6 +308,7 @@ class xplane11import(bpy.types.Operator):
         tempKeyframe = ()
         debugLabel = ''
         objects = []
+        stack = []
         for lineStr in lines:
             line = lineStr.split()
             if (len(line) == 0):
@@ -288,6 +341,7 @@ class xplane11import(bpy.types.Operator):
                 texImage = material.node_tree.nodes.new('ShaderNodeTexImage')
                 texImage.image = tex.image
                 material.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+                continue
 
             if(line[0] == '#'):
                 # if you export with debug mode, labels will be added for each object
@@ -296,6 +350,8 @@ class xplane11import(bpy.types.Operator):
                 newLabel = '_'.join(line[1:])
                 if(debugLabel != newLabel):
                     debugLabel = newLabel
+
+                continue
 
 
             if(line[0] == 'VT'):
@@ -315,10 +371,13 @@ class xplane11import(bpy.types.Operator):
                 uvx = float(line[7])
                 uvy = float(line[8])
                 uv.append((uvx, uvy))
+
+                continue
             
             if(line[0] == 'IDX10' or line[0] == 'IDX'):
                 faces.extend(map(int, line[1:]))
-                
+                continue
+
             if(line[0] == 'ANIM_begin'):
                 anim_nesting += 1
                 # if nested more than one deep, we should make an armature instead of an object
@@ -411,8 +470,35 @@ class xplane11import(bpy.types.Operator):
                 dataref = line[3]
                 obKeyframes.append( ('show', v1, v2, dataref) )                
             
+            if(line[0] == 'TRIS'):
+                obj_origin = Vector( origo )
+                tris_offset, tris_count = int(line[1]), int(line[2])
+                face_lst = faces[tris_offset:tris_offset+tris_count]
+                faceData = tuple( zip(*[iter(face_lst)]*3) )
+                #vert_lst = verts[tris_offset:tris_offset+tris_count]
+                if(trans_available):
+                    obj_origin = origin_temp
+                    # TODO: rot_origin still not correct for nested objects
+
+                obj_definition = (debugLabel, obj_origin, rot_origin, verts, faceData, material, uv, normals, obKeyframes, [])
+                if(anim_nesting):
+                    stack.append( obj_definition )
+                else:
+                    objects.append( obj_definition )
+                debugLabel = ''
+                obKeyframes = []
+                tempKeyframe= ()
+                rot_origin = Vector((0,0,0))
+
+
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
+                if( len(stack) > 1):
+                    node = stack.pop()
+                    stack[-1][9].append(node)
+                if( len(stack) ):
+                    objects.append( stack.pop() ) 
+
                 # clear some vars
                 use_trans = False
                 trans1 = Vector( ( 0, 0, 0 ) )
@@ -423,25 +509,21 @@ class xplane11import(bpy.types.Operator):
                 else:
                     if(len(a_trans)):
                         temp = a_trans.pop()  
-                
-            if(line[0] == 'TRIS'):
-                obj_origin = Vector( origo )
-                tris_offset, tris_count = int(line[1]), int(line[2])
-                obj_lst = faces[tris_offset:tris_offset+tris_count]
-                if(trans_available):
-                    obj_origin = origin_temp
-                    # TODO: rot_origin still not correct for nested objects
-                objects.append( (debugLabel, obj_origin, rot_origin, obj_lst, obKeyframes) )
-                debugLabel = ''
-                obKeyframes = []
-                tempKeyframe= ()
-                rot_origin = Vector((0,0,0))
+
+
+
+            # loop end
         
+        # loop through the parsed objects and create the Blender meshes and armatures
         counter = 0
-        for label, orig, rot_orig, obj, kf in objects:
-            obj_tmp = tuple( zip(*[iter(obj)]*3) )
-            obName = label if (label != '') else 'OBJ%d' % counter
-            self.createMeshFromData(obName, orig, rot_orig, verts, obj_tmp, material, uv, normals, kf)
+        for label, orig, rot_orig, verts, faces, mat, uv, nrm, kf, children in objects:
+            # faces = tuple( zip(*[iter(obj)]*3) )
+            # obName = label if (label != '') else 'OBJ%d' % counter
+            if(len(children)):
+                print(len(children))
+            else:
+                self.createBlenderObject(counter, 'OBJECT', label, orig, rot_orig, verts, faces, mat, uv, nrm, kf)
+            
             counter+=1
     
         return
