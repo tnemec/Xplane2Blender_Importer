@@ -171,7 +171,8 @@ class xplane11import(bpy.types.Operator):
         #Create armature and armature object
         arm = bpy.data.armatures.new( name + 'Arm')
         ob = bpy.data.objects.new( name + 'Armature', arm)
-        ob.location = origin
+        # armature bone should be located at the rotation origin
+        ob.location =  origin
         #Link armature object to our collection
         collection.objects.link(ob)
 
@@ -179,10 +180,10 @@ class xplane11import(bpy.types.Operator):
         bpy.context.view_layer.objects.active = ob
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
 
-        #Make a bone
+        #Make a bone - locate it at the rotation origin
         bone = ob.data.edit_bones.new('Bone')
         bone.head = (0,0,0)
-        bone.tail = (0,0,0.2)
+        bone.tail = (0,0.2,0)
 
         bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -190,7 +191,7 @@ class xplane11import(bpy.types.Operator):
 
         return ob
     
-    def createMesh(self, name, origin, rot_origin, verts, faces, mat, uvs, normals, obKeyframes):
+    def createMesh(self, name, origin, rot_origin, verts, faces, mat, uvs, normals):
         # Create mesh and object
         me = bpy.data.meshes.new(name+'Mesh')
         ob = bpy.data.objects.new(name, me)
@@ -222,12 +223,6 @@ class xplane11import(bpy.types.Operator):
         me.calc_normals()
         me.update(calc_edges=True)
 
-        if(rot_origin != origin):
-            # this moves the mesh to align the rotation axis
-            ob.data.transform(mathutils.Matrix.Translation(-rot_origin))
-            ob.matrix_world.translation += rot_origin
-
-
         # Create uv layer
         uvlayer = me.uv_layers.new()
         me.uv_layers.active = uvlayer
@@ -241,7 +236,7 @@ class xplane11import(bpy.types.Operator):
             # Assign material to object
             ob.data.materials.append(mat)
 
-        # cleanup loose vertexes
+        # cleanup loose vertexes that don't belong in this object
         try:
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.select_all(action='DESELECT')
@@ -253,37 +248,57 @@ class xplane11import(bpy.types.Operator):
             print(ob.name)
             print(e)
 
-        # if(len(children)):
-        #     # this is a child object, make a new armature as the parent
-        #     # get the index of the parent
-        #     parentIdx = 0
-        #     for index, item in enumerate(collection.objects):
-        #         if item.name == ob.name and item.type != 'ARMATURE':
-        #             parentIdx = index - nest
-        #             break
-
-        #     if(parentIdx >= 0):
-        #         obParent = collection.objects[parentIdx]
-        #         arm = self.createArmature(obParent.name, obParent.location)
-        #         # make the original object a child of the armature
-        #         obParent.parent = arm
-
-
-        if(len(obKeyframes)):
-            #print(obKeyframes)
-            self.createKeyframes(obKeyframes, ob)
-
         return ob
 
-    def createBlenderObject(self, index, type, label, orig, rot_orig, verts, faces, mat, uv, nrm, kf):
-        name = label if (label != '') else 'OBJ%d' % index
-        if(type == 'OBJECT'):
-            self.createMesh(name, orig, rot_orig, verts, faces, mat, uv, nrm, kf)
-        else:
-            # create armature
-            print('arm')
+    def transformMeshOrigin(self, ob, origin):
+        # used to move the mesh origin
+        ob.data.transform(mathutils.Matrix.Translation(-origin))
+        return
 
-        return 1 
+    def translateObject(self, ob, location):
+        ob.matrix_world.translation += location
+        return
+
+    def addChild(self, objParent, obj,):
+        try:
+            obj.parent = objParent
+            return objParent
+        except Exception as e:
+            print(e)
+
+        return ()
+
+    def createBlenderObject(self, index, type, obj):
+        # obj = (label, orig, rot_orig, verts, faces, mat, uv, nrm, kf, children)
+        name = obj[0] if (obj[0] != '') else 'OBJ%d' % index
+        orig = obj[1]
+        rot_orig = obj[2]
+        verts = obj[3]
+        faces = obj[4]
+        mat = obj[5]
+        uv = obj[6]
+        nrm = obj[7]
+        kf = obj[8]
+        meshObj = self.createMesh(name, orig, rot_orig, verts, faces, mat, uv, nrm)
+        if(type == 'ARMATURE'):
+            # create armature
+            arm = self.createArmature(name, rot_orig)
+            if(len(kf)):
+                # set keyframes on the armature bone
+                self.createKeyframes(kf, arm)            
+            # add the mesh - need to move the mesh to align with the origin of the bone
+            self.transformMeshOrigin(meshObj, rot_orig)  
+            self.addChild(arm, meshObj)
+            return arm
+        else:
+            if(rot_orig != orig):
+                # move the mesh so the rotation origin is in the correct place
+                # then move the object so it aligns to the correct world position
+                self.transformMeshOrigin(meshObj, rot_orig)  
+                self.translateObject(meshObj, orig)            
+            if(len(kf)):
+                self.createKeyframes(kf, meshObj)
+            return meshObj
 
 
     def run(self, origo):
@@ -381,6 +396,7 @@ class xplane11import(bpy.types.Operator):
             if(line[0] == 'ANIM_begin'):
                 anim_nesting += 1
                 # if nested more than one deep, we should make an armature instead of an object
+                continue
                 
             if(line[0] == 'ANIM_trans'):
                 trans_x = float(line[1])
@@ -405,17 +421,20 @@ class xplane11import(bpy.types.Operator):
                         # add two keyframes
                         obKeyframes.append( ('loc', trans1, param1, dataref) )
                         obKeyframes.append( ('loc', trans2, param2, dataref) )
+                continue
 
             if(line[0] == 'ANIM_trans_begin'):
                 dataref = line[1]
                 # start a new keyframe tuple, we will read the position and value later
                 tempKeyframe = ('loc',0,0,dataref)
+                continue
 
             if(line[0] == 'ANIM_trans_key'):
                 # ANIM_trans_key <value> <x> <y> <z>
                 vec = Vector( (float(line[2]), (float(line[4]) * -1), float(line[3])) )
                 tempKeyframe = ( tempKeyframe[0], vec, float(line[1]), tempKeyframe[3])
                 obKeyframes.append( tempKeyframe )
+                continue
 
             if(line[0] == 'ANIM_rotate'):
                 # ANIM_rotate <x> <y> <z> <r1> <r2> <v1> <v2> [dataref]
@@ -438,6 +457,7 @@ class xplane11import(bpy.types.Operator):
                         # add two keyframes
                         obKeyframes.append( ('rot', axis, v1, r1, dataref) )
                         obKeyframes.append( ('rot', axis, v2, r2, dataref) )
+                continue
 
             if(line[0] == 'ANIM_rotate_begin'):
                 # ANIM_rotate_begin <x> <y> <z> <dataref>
@@ -450,11 +470,13 @@ class xplane11import(bpy.types.Operator):
                 dataref = line[4]
                 # create temp keyframe with some of the params
                 tempKeyframe = ('rot',axis,0.0,0.0,dataref)
+                continue
 
             if(line[0] == 'ANIM_rotate_key'):
                 # ANIM_rotate_key <value> <angle>
                 tempKeyframe = ( tempKeyframe[0], tempKeyframe[1], float(line[1]), float(line[2]), tempKeyframe[4])
                 obKeyframes.append( tempKeyframe )
+                continue
 
             if(line[0] == 'ANIM_hide'):
                 # ANIM_hide <v1> <v2> <dataref>
@@ -462,20 +484,22 @@ class xplane11import(bpy.types.Operator):
                 v2 = float(line[2])
                 dataref = line[3]
                 obKeyframes.append( ('hide', v1, v2, dataref) )
+                continue
 
             if(line[0] == 'ANIM_show'):
                 # ANIM_show <v1> <v2> <dataref>
                 v1 = float(line[1])
                 v2 = float(line[2])
                 dataref = line[3]
-                obKeyframes.append( ('show', v1, v2, dataref) )                
+                obKeyframes.append( ('show', v1, v2, dataref) ) 
+                continue              
             
             if(line[0] == 'TRIS'):
                 obj_origin = Vector( origo )
                 tris_offset, tris_count = int(line[1]), int(line[2])
                 face_lst = faces[tris_offset:tris_offset+tris_count]
                 faceData = tuple( zip(*[iter(face_lst)]*3) )
-                #vert_lst = verts[tris_offset:tris_offset+tris_count]
+
                 if(trans_available):
                     obj_origin = origin_temp
                     # TODO: rot_origin still not correct for nested objects
@@ -489,6 +513,7 @@ class xplane11import(bpy.types.Operator):
                 obKeyframes = []
                 tempKeyframe= ()
                 rot_origin = Vector((0,0,0))
+                continue
 
 
             if(line[0] == 'ANIM_end'):
@@ -510,23 +535,22 @@ class xplane11import(bpy.types.Operator):
                     if(len(a_trans)):
                         temp = a_trans.pop()  
 
-
+                continue
 
             # loop end
         
         # loop through the parsed objects and create the Blender meshes and armatures
-        counter = 0
-        for label, orig, rot_orig, verts, faces, mat, uv, nrm, kf, children in objects:
-            # faces = tuple( zip(*[iter(obj)]*3) )
-            # obName = label if (label != '') else 'OBJ%d' % counter
+        for index, obj in enumerate(objects):
+            # obj = (label, orig, rot_orig, verts, faces, mat, uv, nrm, kf, children)
+            children = obj[9]
             if(len(children)):
-                print(len(children))
+                # create parent armature here
+                arm = self.createBlenderObject(index, 'ARMATURE', obj)
+
             else:
-                self.createBlenderObject(counter, 'OBJECT', label, orig, rot_orig, verts, faces, mat, uv, nrm, kf)
-            
-            counter+=1
-    
-        return
+                self.createBlenderObject(index, 'OBJECT', obj)
+
+        return 
         
 def menu_func(self, context):
     self.layout.operator(xplane11import.bl_idname, text="XPlane 11 Object (.obj)")
