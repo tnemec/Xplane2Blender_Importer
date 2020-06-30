@@ -20,6 +20,10 @@ The original import code for older Blender verison is originally from https://gi
 From Blender, simply select File -> Import -> XPlane 11 Object (.obj) and choose the Xplane .obj file. A new collection will be added with the same name as the .obj file. All the objects will be created to this collection. 
 
 ## Known Issues:
-The script can only import some types of animations. If the model was build with nested objects with bones, this is more complicated than I can tackle at the moment. 
+The script can only import some types of animations. If the model was build with nested objects with bones, this is more complicated than I can tackle at the moment.
+
+I have only tested this with a small number of files. It may not work on some files at all. 
 
 The script will not import most of the properties, LODs, lighting and so on. Eventually some of these may be implemented. The code is open source, why not try and extend it yourself?
+
+If the obj was exported with the Print debug info, the importer can name the objects with the original names. Otherwise, everything gets named as OBJ1, OBJ2 and so on. 
