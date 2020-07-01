@@ -72,7 +72,8 @@ class xplane11import(bpy.types.Operator):
         collection = bpy.data.collections.new(self.filepath.split('\\')[-1].split('.')[0])
         bpy.context.scene.collection.children.link(collection)
         # do the import      
-        self.run((0,0,0))
+        numObj = self.run((0,0,0))
+        print('Imported %d objects' % numObj)
         return {"FINISHED"}
     
     def invoke(self, context, event):
@@ -92,46 +93,21 @@ class xplane11import(bpy.types.Operator):
         for kf in obKeyframes:           
             count+= 2
             bpy.context.scene.frame_set(count)
-            if(kf[0] == 'loc'):
-                # kf = ('loc', o_t, param1, dataref)
-                # first create the Blender keyframe
-                ob.location = kf[1]
-                ob.keyframe_insert(data_path='location', frame=count)
+            if(len(kf)):
+                if(kf[0] == 'loc'):
+                    # kf = ('loc', o_t, param1, dataref)
+                    if(kf[3] == 'none'):
+                        # don't create a keyframe for 'none' dataref
+                        continue
 
-                try:
-                    # add the xplane dataref
-                    if(dataref != kf[3]):
-                        dataref = kf[3]
-                        # add only once as long as the dataref doesn't change
-                        ob.xplane.datarefs.add()
-                        dataref_index = len(ob.xplane.datarefs) -1
-                        ob.xplane.datarefs[dataref_index].path = dataref
+                    # first create the Blender keyframe
+                    ob.location = kf[1]
+                    ob.keyframe_insert(data_path='location', frame=count)
 
-                    # set the dataref value
-                    ob.xplane.datarefs[dataref_index].value = kf[2]
-                    # add the xplane dataref keyframe
-                    bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
-                except Exception as e:
-                    print(self.getMessage('dataref'))
-                    print(e)
-
-            if(kf[0] == 'rot'):
-                # kf = ('rot',axis,value,angle,dataref)
-                # create the Blender keyframe
-                try:
-                    axis = kf[1]
-                    angle = kf[3]
-                    # Euler rotation is in radians
-                    angleRad = math.radians(angle)
-                    # multiply the axis with the angle to get the euler rotation
-                    # probably a cleaner way to do this
-                    euler = ( (axis[0] * angleRad), (axis[1] * angleRad), (axis[2] * angleRad) )
-                    ob.rotation_euler = mathutils.Euler(euler, 'XYZ')
-                    ob.keyframe_insert(data_path='rotation_euler', frame=count)
                     try:
                         # add the xplane dataref
-                        if(dataref != kf[4]):
-                            dataref = kf[4]
+                        if(dataref != kf[3]):
+                            dataref = kf[3]
                             # add only once as long as the dataref doesn't change
                             ob.xplane.datarefs.add()
                             dataref_index = len(ob.xplane.datarefs) -1
@@ -145,24 +121,56 @@ class xplane11import(bpy.types.Operator):
                         print(self.getMessage('dataref'))
                         print(e)
 
-                except Exception as e:
-                    print(e)
+                if(kf[0] == 'rot'):
+                    # kf = ('rot',axis,value,angle,dataref)
+                    # create the Blender keyframe
+                    try:
+                        axis = kf[1]
+                        angle = kf[3]
+                        # Euler rotation is in radians
+                        angleRad = math.radians(angle)
+                        # multiply the axis with the angle to get the euler rotation
+                        # probably a cleaner way to do this
+                        euler = ( (axis[0] * angleRad), (axis[1] * angleRad), (axis[2] * angleRad) )
+                        ob.rotation_euler = mathutils.Euler(euler, 'XYZ')
+                        ob.keyframe_insert(data_path='rotation_euler', frame=count)
+                        try:
+                            # add the xplane dataref
+                            if(dataref != kf[4]):
+                                dataref = kf[4]
+                                # add only once as long as the dataref doesn't change
+                                ob.xplane.datarefs.add()
+                                dataref_index = len(ob.xplane.datarefs) -1
+                                ob.xplane.datarefs[dataref_index].path = dataref
+
+                            # set the dataref value
+                            ob.xplane.datarefs[dataref_index].value = kf[2]
+                            # add the xplane dataref keyframe
+                            bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
+                        except Exception as e:
+                            print(self.getMessage('dataref'))
+                            print(e)
+
+                    except Exception as e:
+                        print(e)
 
 
-            if(kf[0] == 'hide' or kf[0] == 'show'):
-                # kf = ('show', v1, v2, dataref)
-                try:
-                    dataref = kf[3]
-                    ob.xplane.datarefs.add()
-                    dataref_index = len(ob.xplane.datarefs) -1
-                    ob.xplane.datarefs[dataref_index].path = dataref
-                    ob.xplane.datarefs[dataref_index].anim_type = kf[0]            
-                    # set two dataref values
-                    ob.xplane.datarefs[dataref_index].show_hide_v1 = kf[1]
-                    ob.xplane.datarefs[dataref_index].show_hide_v2 = kf[2]
-                except Exception as e:
-                    print(self.getMessage('dataref'))
-                    print(e)
+                if(kf[0] == 'hide' or kf[0] == 'show'):
+                    # kf = ('show', v1, v2, dataref)
+                    try:
+                        dataref = kf[3]
+                        ob.xplane.datarefs.add()
+                        dataref_index = len(ob.xplane.datarefs) -1
+                        ob.xplane.datarefs[dataref_index].path = dataref
+                        ob.xplane.datarefs[dataref_index].anim_type = kf[0]            
+                        # set two dataref values
+                        ob.xplane.datarefs[dataref_index].show_hide_v1 = kf[1]
+                        ob.xplane.datarefs[dataref_index].show_hide_v2 = kf[2]
+                    except Exception as e:
+                        print(self.getMessage('dataref'))
+                        print(e)
+
+                # end kf loop
 
         bpy.context.scene.frame_set(1)
         return 1
@@ -269,37 +277,31 @@ class xplane11import(bpy.types.Operator):
         return ()
 
     def createBlenderObject(self, index, type, obj):
-        # obj = (label, orig, rot_orig, verts, faces, mat, uv, nrm, kf, children)
-        name = obj[0] if (obj[0] != '') else 'OBJ%d' % index
-        orig = obj[1]
-        rot_orig = obj[2]
-        verts = obj[3]
-        faces = obj[4]
-        mat = obj[5]
-        uv = obj[6]
-        nrm = obj[7]
-        kf = obj[8]
-        meshObj = self.createMesh(name, orig, rot_orig, verts, faces, mat, uv, nrm)
+        # obj = {'label', 'orig', 'rot_origin', 'verts', 'faces', 'mat', 'uv', 'nrm', 'attr' 'kf', 'children'}
+        if(obj['label'] == ''):
+            obj['label'] = 'OBJ%d' % index
+
+        # create the mesh
+        meshObj = self.createMesh(obj['label'], obj['orig'], obj['rot_origin'], obj['verts'], obj['faces'], obj['mat'], obj['uv'], obj['nrm'])
         if(type == 'ARMATURE'):
             # create armature
-            arm = self.createArmature(name, rot_orig)
-            if(len(kf)):
+            arm = self.createArmature(obj['label'], obj['rot_origin'])
+            if(len(obj['kf'])):
                 # set keyframes on the armature bone
-                self.createKeyframes(kf, arm)            
+                self.createKeyframes(obj['kf'], arm)            
             # add the mesh - need to move the mesh to align with the origin of the bone
-            self.transformMeshOrigin(meshObj, rot_orig)  
+            self.transformMeshOrigin(meshObj, obj['rot_origin'])  
             self.addChild(arm, meshObj)
             return arm
         else:
-            if(rot_orig != orig):
+            if(obj['rot_origin'] != obj['orig']):
                 # move the mesh so the rotation origin is in the correct place
                 # then move the object so it aligns to the correct world position
-                self.transformMeshOrigin(meshObj, rot_orig)  
-                self.translateObject(meshObj, orig)            
-            if(len(kf)):
-                self.createKeyframes(kf, meshObj)
+                self.transformMeshOrigin(meshObj, obj['rot_origin'])  
+                self.translateObject(meshObj, obj['rot_origin'])            
+            if(len(obj['kf'])):
+                self.createKeyframes(obj['kf'], meshObj)
             return meshObj
-
 
     def run(self, origo):
         # parse file
@@ -311,15 +313,17 @@ class xplane11import(bpy.types.Operator):
         faces = []
         normals = []
         uv = []
+        attributes = []
         material = 0
         origin_temp = Vector( ( 0, 0, 0 ) )
         rot_origin = Vector( ( 0, 0, 0 ) )
-        anim_nesting = 0
+        anim_nesting = -1
+        animStack = []
+        keyframes = []
         a_trans = [origin_temp]
         trans_available = False
         trans1 = Vector( ( 0, 0, 0 ) )
         trans2 = Vector( ( 0, 0, 0 ) )
-        obKeyframes = []
         tempKeyframe = ()
         debugLabel = ''
         objects = []
@@ -332,7 +336,6 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'TEXTURE'):
                 texfilename = line[1]
-
                 # Create texture
                 tex = bpy.data.textures.new('Texture', type = 'IMAGE')
                 try:
@@ -395,7 +398,10 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'ANIM_begin'):
                 anim_nesting += 1
-                # if nested more than one deep, we should make an armature instead of an object
+                # add all the current keyframes to the stack
+                if(len(keyframes)):
+                    animStack.append(keyframes)
+                    keyframes = []
                 continue
                 
             if(line[0] == 'ANIM_trans'):
@@ -414,13 +420,11 @@ class xplane11import(bpy.types.Operator):
                 if(len(line) == 10):
                     # has a dataref
                     dataref = line[9]
-                    if(dataref != 'none'):
-                        # ignore 'none'
-                        param1 = float(line[7])
-                        param2 = float(line[8])
-                        # add two keyframes
-                        obKeyframes.append( ('loc', trans1, param1, dataref) )
-                        obKeyframes.append( ('loc', trans2, param2, dataref) )
+                    param1 = float(line[7])
+                    param2 = float(line[8])
+                    # add two keyframes
+                    keyframes.append( ('loc', trans1, param1, dataref) )
+                    keyframes.append( ('loc', trans2, param2, dataref) )
                 continue
 
             if(line[0] == 'ANIM_trans_begin'):
@@ -433,7 +437,7 @@ class xplane11import(bpy.types.Operator):
                 # ANIM_trans_key <value> <x> <y> <z>
                 vec = Vector( (float(line[2]), (float(line[4]) * -1), float(line[3])) )
                 tempKeyframe = ( tempKeyframe[0], vec, float(line[1]), tempKeyframe[3])
-                obKeyframes.append( tempKeyframe )
+                keyframes.append( tempKeyframe )
                 continue
 
             if(line[0] == 'ANIM_rotate'):
@@ -446,17 +450,15 @@ class xplane11import(bpy.types.Operator):
                 if(len(line) == 9):
                     # has a dataref
                     dataref = line[8]
-                    if(dataref != 'none'):
-                        # ignore 'none'
-                        # axis gets mapped as XZY because that will be Blenders XYZ
-                        axis = (float(line[1]), float(line[3]), float(line[2]))
-                        r1 = float(line[4])
-                        r2 = float(line[5])
-                        v1 = float(line[6])
-                        v2 = float(line[7])                        
-                        # add two keyframes
-                        obKeyframes.append( ('rot', axis, v1, r1, dataref) )
-                        obKeyframes.append( ('rot', axis, v2, r2, dataref) )
+                    # axis gets mapped as XZY because that will be Blenders XYZ
+                    axis = (float(line[1]), float(line[3]), float(line[2]))
+                    r1 = float(line[4])
+                    r2 = float(line[5])
+                    v1 = float(line[6])
+                    v2 = float(line[7])                        
+                    # add two keyframes
+                    keyframes.append( ('rot', axis, v1, r1, dataref) )
+                    keyframes.append( ('rot', axis, v2, r2, dataref) )                 
                 continue
 
             if(line[0] == 'ANIM_rotate_begin'):
@@ -475,7 +477,7 @@ class xplane11import(bpy.types.Operator):
             if(line[0] == 'ANIM_rotate_key'):
                 # ANIM_rotate_key <value> <angle>
                 tempKeyframe = ( tempKeyframe[0], tempKeyframe[1], float(line[1]), float(line[2]), tempKeyframe[4])
-                obKeyframes.append( tempKeyframe )
+                keyframes.append( tempKeyframe )            
                 continue
 
             if(line[0] == 'ANIM_hide'):
@@ -483,7 +485,7 @@ class xplane11import(bpy.types.Operator):
                 v1 = float(line[1])
                 v2 = float(line[2])
                 dataref = line[3]
-                obKeyframes.append( ('hide', v1, v2, dataref) )
+                keyframes.append( ('hide', v1, v2, dataref) )
                 continue
 
             if(line[0] == 'ANIM_show'):
@@ -491,7 +493,7 @@ class xplane11import(bpy.types.Operator):
                 v1 = float(line[1])
                 v2 = float(line[2])
                 dataref = line[3]
-                obKeyframes.append( ('show', v1, v2, dataref) ) 
+                keyframes.append( ('show', v1, v2, dataref) )
                 continue              
             
             if(line[0] == 'TRIS'):
@@ -504,31 +506,41 @@ class xplane11import(bpy.types.Operator):
                     obj_origin = origin_temp
                     # TODO: rot_origin still not correct for nested objects
 
-                obj_definition = (debugLabel, obj_origin, rot_origin, verts, faceData, material, uv, normals, obKeyframes, [])
-                if(anim_nesting):
-                    stack.append( obj_definition )
-                else:
-                    objects.append( obj_definition )
-                debugLabel = ''
+                # this obj has animations
+                # add the animations in this block
                 obKeyframes = []
+                obKeyframes = obKeyframes + keyframes             
+
+                # add all the previous animations in the stack
+                for anim in animStack:
+                    if(len(anim)):
+                       obKeyframes = obKeyframes + anim
+
+                # add the mesh to the object list
+                objects.append( {'label': debugLabel, 'orig': obj_origin, 'rot_origin': rot_origin, 'verts': verts, 'faces': faceData, 'mat': material, 'uv': uv, 'nrm': normals, 'attr': attributes, 'kf': obKeyframes, 'children': []} )          
+
+                debugLabel = ''
                 tempKeyframe= ()
+                attributes = []
                 rot_origin = Vector((0,0,0))
                 continue
 
 
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
-                if( len(stack) > 1):
-                    node = stack.pop()
-                    stack[-1][9].append(node)
-                if( len(stack) ):
-                    objects.append( stack.pop() ) 
+                if(len(keyframes)):
+                    animStack.append(keyframes)
+                    keyframes = []
+
+                if(len(animStack)):
+                    # remove the last set of animations
+                    temp = animStack.pop()
 
                 # clear some vars
                 use_trans = False
                 trans1 = Vector( ( 0, 0, 0 ) )
                 trans2 = Vector( ( 0, 0, 0 ) )
-                if(anim_nesting == 0):
+                if(anim_nesting == -1):
                     trans_available = False
                     a_trans = [Vector((0,0,0))]
                 else:
@@ -542,7 +554,7 @@ class xplane11import(bpy.types.Operator):
         # loop through the parsed objects and create the Blender meshes and armatures
         for index, obj in enumerate(objects):
             # obj = (label, orig, rot_orig, verts, faces, mat, uv, nrm, kf, children)
-            children = obj[9]
+            children = obj['children']
             if(len(children)):
                 # create parent armature here
                 arm = self.createBlenderObject(index, 'ARMATURE', obj)
@@ -550,7 +562,7 @@ class xplane11import(bpy.types.Operator):
             else:
                 self.createBlenderObject(index, 'OBJECT', obj)
 
-        return 
+        return len(objects)
         
 def menu_func(self, context):
     self.layout.operator(xplane11import.bl_idname, text="XPlane 11 Object (.obj)")
