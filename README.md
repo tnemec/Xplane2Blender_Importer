@@ -17,11 +17,18 @@ The original import code for older Blender verison is originally from https://gi
 * You should see a new entry in the import menu called "XPlane 11 Object (.obj)"
 
 ## Usage
-From Blender, simply select File -> Import -> XPlane 11 Object (.obj) and choose the Xplane .obj file. A new collection will be added with the same name as the .obj file. All the objects will be created to this collection. 
+From Blender, simply select File -> Import -> XPlane 11 Object (.obj) and choose the Xplane .obj file. A new collection will be added with the same name as the .obj file. All the objects will be created to this collection.
+
+The location that the object are placed are based on the data in the obj file. If you are importing into an existing Blender model, your reference origin may differ. In this case, select all the imported objects and move them where you would like. Then object -> apply the location.
+
+## Animations
+When you create a new model, you can apply keyframes to each object directly with transformation and this will export just fine. 
+
+If you have any nested objects, you should use an armature and add keyframes to the armature instead. Or if the rotation angle is more than one axis simultaneously. 
+
+The importer will create an armature for all translations even for simgle objects. This is just easier to do when parsing through the file sequentially. Just make changes to the armature object instead of the mesh object. Maybe this can be improved in the future.
 
 ## Known Issues:
-The script can only import some types of animations. If the model was build with nested objects with bones, this is more complicated than I can tackle at the moment.
-
 I have only tested this with a small number of files. It may not work on some files at all. 
 
 The script will not import most of the properties, LODs, lighting and so on. Eventually some of these may be implemented. The code is open source, why not try and extend it yourself?

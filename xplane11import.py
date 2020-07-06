@@ -198,7 +198,7 @@ class xplane11import(bpy.types.Operator):
 
         return ob
     
-    def createMesh(self, name, origin, verts, faces, mat, uvs, normals):
+    def createMesh(self, name, origin, verts, faces, mat, uvs, normals, attr):
         # Create mesh and object
         me = bpy.data.meshes.new(name+'Mesh')
         ob = bpy.data.objects.new(name, me)
@@ -240,6 +240,16 @@ class xplane11import(bpy.types.Operator):
             # Assign material to object
             ob.data.materials.append(mat)
 
+        for attribute in attr:
+            # add custom attributes
+            # this is the raw string from the parser
+            try:
+                bpy.ops.object.add_xplane_object_attribute()
+                ob.xplane.customAttributes[-1].name = attribute[0]
+                ob.xplane.customAttributes[-1].value = ' '.join(attribute[1:])
+            except Exception as e:
+                print(e)
+
         # cleanup loose vertexes that don't belong in this object
         try:
             bpy.ops.object.mode_set(mode='EDIT')
@@ -276,10 +286,10 @@ class xplane11import(bpy.types.Operator):
 
 
     def createBlenderObject(self, obj):
-        # obj = {label', 'orig',  'verts', 'faces', 'mat', 'uv', 'nrm', 'attr' 'kf',}
+        # obj = {label', 'orig',  'verts', 'faces', 'mat', 'uv', 'nrm', 'attr'}
 
         # create the mesh
-        meshObj = self.createMesh(obj['label'], obj['orig'], obj['verts'], obj['faces'], obj['mat'], obj['uv'], obj['nrm'])      
+        meshObj = self.createMesh(obj['label'], obj['orig'], obj['verts'], obj['faces'], obj['mat'], obj['uv'], obj['nrm'], obj['attr'])      
 
         return meshObj
 
@@ -375,6 +385,10 @@ class xplane11import(bpy.types.Operator):
                 faces.extend(map(int, line[1:]))
                 continue
 
+            if(line[0].startswith('ATTR_')):
+                # found a custom attribute
+                attributes.append(line)
+
             if(line[0] == 'ANIM_begin'):
                 if(len(animStack)):
                     # a new nested block started
@@ -455,6 +469,10 @@ class xplane11import(bpy.types.Operator):
                 tempKeyframe = ( tempKeyframe[0], tempKeyframe[1], float(line[1]), float(line[2]), tempKeyframe[4])
                 keyframes.append( tempKeyframe )            
                 continue
+
+            if(line[0] == 'ANIM_keyframe_loop'):
+                # TODO: add loop property
+                print('loop')
 
             if(line[0] == 'ANIM_hide'):
                 # ANIM_hide <v1> <v2> <dataref>
@@ -561,24 +579,6 @@ class xplane11import(bpy.types.Operator):
         for index, obj in enumerate(objects):
             meshObj = self.createBlenderObject(obj)
 
-            # if(obj['armLabel'] != ''):
-            #     # this object is a child of an armature
-            #     try:
-            #         BlendArm = bpy.context.view_layer.objects[obj['armLabel']]
-            #         BlendObj =  bpy.context.view_layer.objects[obj['label']]
-            #         if(BlendArm.location != BlendObj.location):
-            #             # translate the mesh to match the armature origin
-            #             self.transformMeshOrigin(BlendObj, BlendArm.location) 
-            #         self.addChild(BlendArm, BlendObj) 
-
-            #     except Exception as e:
-            #         print('cannot get the Blender object: ' + obj['label'])
-            #         print(e)
-
-            # else:
-            #     # just a plain mesh with no animation
-            #     print('')
-
 
         # create the parent/child relationships
         for arm in armatures:
@@ -594,7 +594,6 @@ class xplane11import(bpy.types.Operator):
 
         # end loop
 
-    
         return len(objects) + len(armatures)
         
 def menu_func(self, context):
