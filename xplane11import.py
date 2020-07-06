@@ -177,7 +177,7 @@ class xplane11import(bpy.types.Operator):
         #Create armature and armature object
         arm = bpy.data.armatures.new( name + 'Arm')
         arm.display_type = 'STICK'
-        ob = bpy.data.objects.new( name + 'Armature', arm)
+        ob = bpy.data.objects.new( name , arm)
         # armature bone should be located at the rotation origin
         ob.location =  origin
         #Link armature object to our collection
@@ -271,6 +271,8 @@ class xplane11import(bpy.types.Operator):
             obj.parent = objParent
             return objParent
         except Exception as e:
+            print('failed to parent object: ')
+            print(objParent)
             print(e)
 
         return ()
@@ -305,6 +307,8 @@ class xplane11import(bpy.types.Operator):
         origin_temp = Vector( ( 0, 0, 0 ) )
         rot_origin = Vector( ( 0, 0, 0 ) )
         anim_nesting = -1
+        animID = -1
+        armLabel = ''
         animStack = []
         keyframes = []
         a_trans = [origin_temp]
@@ -315,7 +319,7 @@ class xplane11import(bpy.types.Operator):
         obLabel = ''
         objID = 0
         objects = []
-        bones = []
+        armatures = []
         for lineStr in lines:
             line = lineStr.split()
             if (len(line) == 0):
@@ -386,10 +390,26 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'ANIM_begin'):
                 anim_nesting += 1
+                if(len(animStack)):
+                    # a new nested block started
+                    # add all the current keyframes to this stack
+                    animStack[-1]['kf'] = keyframes
+
+                # create a new block with unique ID
+                animID +=1
+                # add a block to the stack
+                armLabel = obLabel if obLabel != '' else 'ARM%d' % animID
+                animStack.append({'label': armLabel, 'kf': []})
+                # and track keyframes
+                keyframes = []
+
+                # REMOVE:
                 # add all the current keyframes to the current stack
-                if(len(keyframes) ):
-                    animStack.append({'id': objID-1, 'kf': keyframes})
-                    keyframes = []
+                # we'll assume that all the keyframes for this block will be listed
+                # before we encounter another nested ANIM_begin
+                # if(len(keyframes) ):
+                #     animStack.append({'id': animID, 'kf': keyframes})
+                #     keyframes = []
                 continue
                 
             if(line[0] == 'ANIM_trans'):
@@ -494,19 +514,11 @@ class xplane11import(bpy.types.Operator):
                     obj_origin = origin_temp
                     # TODO: rot_origin still not correct for nested objects
 
-                # keyframes contains all the animations for this ANIM_begin block
-                obKeyframes = []
-                obKeyframes = obKeyframes + keyframes
-
-                # animStack contains animations from parent blocks. Add the entire stack for now
-                obAnimStack = []
-                obAnimStack = obAnimStack + animStack
-
                 if(obLabel == ''):
                     obLabel = 'OBJ%d' % objID
 
                 # add the mesh to the object list
-                objects.append( {'id': objID, 'label': obLabel, 'orig': obj_origin, 'rot_origin': rot_origin, 'verts': verts, 'faces': faceData, 'mat': material, 'uv': uv, 'nrm': normals, 'attr': attributes, 'kf': obKeyframes, 'animStack' : obAnimStack} )     
+                objects.append( {'id': objID, 'label': obLabel, 'orig': obj_origin, 'rot_origin': rot_origin, 'verts': verts, 'faces': faceData, 'mat': material, 'uv': uv, 'nrm': normals, 'attr': attributes, 'armLabel' : armLabel} )     
 
                 obLabel = ''
                 objID += 1
@@ -518,17 +530,21 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'ANIM_end'):
                 anim_nesting -= 1
-                if(len(keyframes)):
-                    # now we can add animations from the last block to the stack
-                    animStack.append({'id': objID -1, 'kf': keyframes})
-                    keyframes = []
-
                 if(len(animStack)):
-                    # remove the last set of animations
-                    # they are no longer needed
-                    temp = animStack.pop()
+                    # pop the last block and assign to an armature
+                    anim = animStack.pop()
+                    armKeyframes = anim['kf']
+                    parent = ''
+                    if(len(keyframes)):
+                        # add any remaining animations
+                        armKeyframes = armKeyframes + keyframes
+                        if(len(animStack)):
+                            # if there is another anim on the stack, that is the parent
+                            parent = animStack[-1]['label']
+                    armatures.append({'label': anim['label'], 'kf': armKeyframes, 'parent': parent})
 
                 # clear some vars
+                keyframes = []
                 use_trans = False
                 trans1 = Vector( ( 0, 0, 0 ) )
                 trans2 = Vector( ( 0, 0, 0 ) )
@@ -542,64 +558,122 @@ class xplane11import(bpy.types.Operator):
                 continue
 
             # loop end
-        
 
-        
-        # loop through the parsed objects and create the Blender meshes and armatures
+        # loop through the armatures and create them
+        # we will add keyframes to all the armatures
+        for arm in armatures:
+            # need to move the armature to the correct location based on rotations
+            keyframes = arm['kf']
+            armOrigin = (0,0,0)
+            rotOrigin = (0,0,0)
+            tempOrigin = (0,0,0)
+            for kf in keyframes:
+                if(len(kf)):
+                    if(kf[0] == 'loc'):
+                        # save the first translation position
+                        tempOrigin = kf[1]
+                    if(kf[0] == 'rot'):
+                        # if rotation follows translation, save we'll use that as the origin
+                        rotOrigin = tempOrigin
+                        break;
+            # create the armature 
+            BlenderArm = self.createArmature( arm['label'], rotOrigin)
+            # apply the keyframes to the armature
+            self.createKeyframes(keyframes, BlenderArm)
+
+        # return to frame 0
+        bpy.context.scene.frame_set(0)
+
+
+        # loop through the parsed objects and create the Blender meshes
         for index, obj in enumerate(objects):
-            hasParent = False
-            hasTrans = False
-            # if this object has a parent with translation or rotation and itself has translation or rotaion, we need to create an armature
+            meshObj = self.createBlenderObject(obj)
 
-            if(len(obj['animStack'])):
-                print(obj['animStack'])
-                parentAnim = obj['animStack'][-1]
-                parentAnimID = parentAnim['id']
-                parentAnimKF = parentAnim['kf']
-                if(len(parentAnimKF)):
-                    for fr in parentAnimKF:
-                        if(len(fr) and (fr[0] == 'loc' or fr[0] == 'rot')):
-                            hasParent = True;
-                            break;
+            if(obj['armLabel'] != ''):
+                # this object is a child of an armature
+                try:
+                    BlendArm = bpy.context.view_layer.objects[obj['armLabel']]
+                    BlendObj =  bpy.context.view_layer.objects[obj['label']]
+                    if(BlendArm.location != BlendObj.location):
+                        # translate the mesh to match the armature origin
+                        self.transformMeshOrigin(BlendObj, BlendArm.location) 
+                    self.addChild(BlendArm, BlendObj) 
 
-                for fr in obj['kf']:
-                    if(len(fr) and (fr[0] == 'loc' or fr[0] == 'rot')):
-                        hasTrans = True;
-                        break;
-
-
-            if(hasParent) :
-                # find the parent Blender object and make sure that is also an armature
-                parentObj = False
-                for ob in objects:
-                    if(ob['id'] == parentAnimID):
-                        parentObj = ob
-                        break;
-
-                if(parentObj):
-                    BlendObj =  bpy.context.view_layer.objects[ob['label']]
-                    if(BlendObj.type != 'ARMATURE'):
-                        parentArm = self.createArmature( parentObj['label'], parentObj['rot_origin'])
-                        self.transformMeshOrigin(BlendObj, parentObj['rot_origin']) 
-                        self.addChild(parentArm, BlendObj)    
-
-                    meshObj = self.createBlenderObject(obj)                   
-                    self.transformMeshOrigin(meshObj, obj['rot_origin']) 
-
-                    if(hasTrans):
-                        # the current object needs it's own armature located at the rot origin
-                        
-                        arm = self.createArmature( obj['label'], obj['rot_origin'])
-                        self.addChild(arm, meshObj)
-                        # then make this a child of the parent armature
-                        self.addChild(parentArm, arm)
-
-                    else:
-                        # this mesh doesn't contain and translate or rotation, so it can just be parented
-                        self.addChild(parentArm, meshObj)
+                except Exception as e:
+                    print('cannot get the Blender object: ' + obj['label'])
+                    print(e)
 
             else:
-                meshObj = self.createBlenderObject(obj)
+                # just a plain mesh with no animation
+                print('')
+
+
+        # create the parent/child relationships
+        for arm in armatures:
+            if(arm['parent'] != ''):
+                try:
+                    parentArm = bpy.context.view_layer.objects[arm['parent']]
+                    childArm = bpy.context.view_layer.objects[arm['label']]
+                    # reset the child position
+                    childArm.location = childArm.location - parentArm.location
+                    self.addChild(parentArm, childArm)
+                except Exception as e:
+                    print(e)     
+
+        # end loop
+
+
+            # if this object has a parent with translation or rotation and itself has translation or rotaion, we need to create an armature
+
+            # if(len(obj['animStack'])):
+            #     print(obj['animStack'])
+            #     parentAnim = obj['animStack'][-1]
+            #     parentAnimID = parentAnim['id']
+            #     parentAnimKF = parentAnim['kf']
+            #     if(len(parentAnimKF)):
+            #         for fr in parentAnimKF:
+            #             if(len(fr) and (fr[0] == 'loc' or fr[0] == 'rot')):
+            #                 hasParent = True;
+            #                 break;
+
+            #     for fr in obj['kf']:
+            #         if(len(fr) and (fr[0] == 'loc' or fr[0] == 'rot')):
+            #             hasTrans = True;
+            #             break;
+
+
+            # if(hasParent) :
+            #     # find the parent Blender object and make sure that is also an armature
+            #     parentObj = False
+            #     for ob in objects:
+            #         if(ob['id'] == parentAnimID):
+            #             parentObj = ob
+            #             break;
+
+            #     if(parentObj):
+            #         BlendObj =  bpy.context.view_layer.objects[ob['label']]
+            #         if(BlendObj.type != 'ARMATURE'):
+            #             parentArm = self.createArmature( parentObj['label'], parentObj['rot_origin'])
+            #             self.transformMeshOrigin(BlendObj, parentObj['rot_origin']) 
+            #             self.addChild(parentArm, BlendObj)    
+
+            #         meshObj = self.createBlenderObject(obj)                   
+            #         self.transformMeshOrigin(meshObj, obj['rot_origin']) 
+
+            #         if(hasTrans):
+            #             # the current object needs it's own armature located at the rot origin
+                        
+            #             arm = self.createArmature( obj['label'], obj['rot_origin'])
+            #             self.addChild(arm, meshObj)
+            #             # then make this a child of the parent armature
+            #             self.addChild(parentArm, arm)
+
+            #         else:
+            #             # this mesh doesn't contain and translate or rotation, so it can just be parented
+            #             self.addChild(parentArm, meshObj)
+
+            # else:
+            #     meshObj = self.createBlenderObject(obj)
 
 
 
