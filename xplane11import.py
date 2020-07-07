@@ -264,6 +264,21 @@ class xplane11import(bpy.types.Operator):
 
         return ob
 
+    def getOrigin(self, keyframes):
+        # if the animation contains rotation, the origin may be different
+        origin = Vector((0,0,0))
+        tempOrigin = Vector((0,0,0))
+        for kf in keyframes:
+            if(len(kf)):
+                if(kf[0] == 'loc'):
+                    # save the first translation position
+                    tempOrigin = kf[1]
+                if(kf[0] == 'rot'):
+                    # if rotation follows translation, save we'll use that as the origin
+                    origin = tempOrigin
+                    break;
+        return origin
+
     def transformMeshOrigin(self, ob, origin):
         # used to move the mesh origin
         ob.data.transform(mathutils.Matrix.Translation(-origin))
@@ -305,9 +320,9 @@ class xplane11import(bpy.types.Operator):
         uv = []
         attributes = []
         material = 0
-        origin_temp = Vector( ( 0, 0, 0 ) )
         animID = -1
         armLabel = ''
+        parentLabels = []
         animStack = []
         keyframes = []
         trans1 = Vector( ( 0, 0, 0 ) )
@@ -414,7 +429,6 @@ class xplane11import(bpy.types.Operator):
                 trans_z2 = float(line[5])
                 trans1 = Vector( (trans_x, trans_y, trans_z) )
                 trans2 = Vector( (trans_x2, trans_y2, trans_z2) )              
-                origin_temp = trans1
 
                 if(len(line) == 10):
                     # has a dataref
@@ -500,7 +514,7 @@ class xplane11import(bpy.types.Operator):
                     obLabel = 'OBJ%d' % objID
 
                 # make a dict of the mesh object
-                meshObject = {'id': objID, 'label': obLabel, 'orig': obj_origin, 'verts': verts, 'faces': faceData, 'mat': material, 'uv': uv, 'nrm': normals, 'attr': attributes}
+                meshObject = {'id': objID, 'label': obLabel, 'orig': obj_origin, 'verts': verts, 'faces': faceData, 'mat': material, 'uv': uv, 'nrm': normals, 'attr': attributes, 'kf': keyframes}
 
                 if(len(animStack)):                   
                     # this is in an anim block, so add it to the last block in the stack
@@ -525,12 +539,19 @@ class xplane11import(bpy.types.Operator):
                     armKeyframes = anim['kf']
                     parent = ''
                     if(len(keyframes)):
-                        # add any remaining animations
+                        # add any remaining animations from parent anim blocks
                         armKeyframes = armKeyframes + keyframes
                         if(len(animStack)):
-                            # if there is another anim on the stack, that is the parent
+                            # if there is previous anim on the stack, that is the parent
                             parent = animStack[-1]['label']
-                    armatures.append({'label': anim['label'], 'kf': armKeyframes, 'parent': parent, 'meshes': anim['meshes']})
+                            parentLabels.append(parent)
+
+                    if(parent != '' or anim['label'] in parentLabels):
+                        # requires an armature to handle nested animation
+                        armatures.append({'label': anim['label'], 'kf': armKeyframes, 'parent': parent, 'meshes': anim['meshes']})
+                    else:
+                        # append to objects since this does not have a parent or child
+                        objects = objects + anim['meshes']
 
                 # clear some vars
                 keyframes = []
@@ -541,23 +562,12 @@ class xplane11import(bpy.types.Operator):
 
             # loop end
 
-        # loop through the armatures and create them
+        # loop through the armatures and create them in Blender
         # we will add keyframes to all the armatures
         for arm in armatures:
             # need to move the armature to the correct location based on rotations
             keyframes = arm['kf']
-            armOrigin = (0,0,0)
-            rotOrigin = (0,0,0)
-            tempOrigin = (0,0,0)
-            for kf in keyframes:
-                if(len(kf)):
-                    if(kf[0] == 'loc'):
-                        # save the first translation position
-                        tempOrigin = kf[1]
-                    if(kf[0] == 'rot'):
-                        # if rotation follows translation, save we'll use that as the origin
-                        rotOrigin = tempOrigin
-                        break;
+            rotOrigin = self.getOrigin(keyframes)
             # create the armature 
             BlenderArm = self.createArmature( arm['label'], rotOrigin)
             # apply the keyframes to the armature
@@ -578,6 +588,13 @@ class xplane11import(bpy.types.Operator):
         # loop through the loose meshes and create the Blender meshes
         for index, obj in enumerate(objects):
             meshObj = self.createBlenderObject(obj)
+            if(len(obj['kf'])):
+                print(obj['label'])
+                rotOrigin = self.getOrigin(obj['kf'])
+                self.transformMeshOrigin(meshObj, rotOrigin)
+                self.translateObject(meshObj, rotOrigin)
+                # apply object animation keyframes
+                self.createKeyframes(obj['kf'], meshObj)
 
 
         # create the parent/child relationships
