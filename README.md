@@ -28,7 +28,7 @@ The import plugin currently supports these properties. Anything else in the OBJ 
 Version 1.0 is primarily for aircraft design, I'm not planning to support scenery object importing at this time.
 
 | Property | Supported | Version |
-| ----------- | ----------- |
+| ---- | --- | --- |
 | Geometry (triangles) | Yes | 1.0 |
 | Geometry (lines) | No |  |
 | Geometry (lights) | No |  |
