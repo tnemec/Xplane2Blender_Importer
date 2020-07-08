@@ -1,11 +1,11 @@
 # Xplane2Blender_Importer
 Blender import script for X-Plane up to version 11. Compatible with Blender 2.8
 
-This is experimental code and there is no guarantee that it will work for all files. Even if it does import a model, you will lose many of the parameters. This script is only useful to import some geometry, you will need to add animations and other properties. This is not a tool to make minor edits to a obj and expect to export it intact.
+This is experimental code and there is no guarantee that it will work for all files. Even if it does import a model, you will lose many of the parameters. This script is only useful to import some geometry, you will need to add animations and other properties. If you're looking for a quick way to make modifications to an existing aircraft, this is not the tool for you.
 
-The plugin will import geometry normals and uv maps. If you want to import animations, you will need to install the most recent Xplane2Blender export plugin: https://github.com/X-Plane/XPlane2Blender
+The plugin will import geometry normals and uv maps to give you a starting point for creating aircraft 3D models. If you want to export the model to use in X-Plane PlaneMaker, you will need to install the most recent Xplane2Blender export plugin: https://github.com/X-Plane/XPlane2Blender
 
-Do not redistribute models from other authors without permission. 
+Do not redistribute models from other authors without permission. This applies to use of this plugin and using 3D models from other sources. 
 
 The original import code for older Blender verison is originally from https://github.com/daveprue/XPlane2Blender 
 
@@ -59,10 +59,16 @@ If you have any nested objects, you should use an armature and add keyframes to 
 ## Support:
 I created this script for personal use and am not really interested in supporting it or instructing on X-Plane modeling. Take a look at the source code, it's well commented, so you may be able to fix issues yourself.
 
+If you want to learn more about creating 3D models in Blender and about the XPlane2Blender plugin, I suggest visiting the [x-plane.org developer forums](https://forums.x-plane.org/index.php?/forums/forum/45-3d-modeling/). There are many helpful members and information located there. This is a big topic with no "training wheels" to get you started. But it can be rewarding.
+
 ## Known Issues:
 I have only tested this with a small number of files. It may not work on some files at all. 
 
 If it does import your obj file with no errors, it will likely not match the source Blender file. Objects get reordered, armatures are created when needed and some features will not be imported. This can help as a starting point, not as a way to cleanly convert older models. Models from earlier versions of Blender and the export plugin may not match up well with recent Blender versions.
+
+Nested animations are especially tricky as there are many valid ways to organize the obj file. I'm making some assumptions about the structure, so some files, including the included Laminar Reasearch aircraft that do not import cleanly. 
+
+One way to fix this is to copy the obj file and make some changes in a text editor before importing. Specifically, I expect that an ANIM_begin line marks the set of animations for one armature. You can add these to help guide the importer to understand which objects should be parented to others.
 
 The script will not import most of the properties, LODs, lighting and so on. Eventually some of these may be implemented. The code is open source, why not try and extend it yourself?
 
