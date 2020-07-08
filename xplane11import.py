@@ -589,7 +589,6 @@ class xplane11import(bpy.types.Operator):
         for index, obj in enumerate(objects):
             meshObj = self.createBlenderObject(obj)
             if(len(obj['kf'])):
-                print(obj['label'])
                 rotOrigin = self.getOrigin(obj['kf'])
                 self.transformMeshOrigin(meshObj, rotOrigin)
                 self.translateObject(meshObj, rotOrigin)
