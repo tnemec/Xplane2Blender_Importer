@@ -264,6 +264,63 @@ class xplane11import(bpy.types.Operator):
 
         return ob
 
+    def loadImageTexture(self, filename):
+        # Create texture
+        try:
+            tex = bpy.data.textures.new('Texture', type = 'IMAGE')
+            tex.image = bpy.data.images.load("%s\\%s" % (os.path.dirname(self.filepath), filename))
+            return tex
+        except:
+            # Try to load the image as .dds
+            try:
+                base = os.path.splitext(filename)[0]
+                tex.image = bpy.data.images.load("%s\\%s" % (os.path.dirname(self.filepath), base + '.dds'))
+                return tex
+            except:
+                print('Cannot find image file: ' + filename)
+                return False
+
+    def createBlenderMaterial(self, diffuseTex, name):
+        # Create and add a material
+        material = bpy.data.materials.new('Material')
+        # Add Texture to the Material via shader nodes
+        material.use_nodes = True
+        material.name = name
+
+        bsdf = material.node_tree.nodes["Principled BSDF"]
+        texImage = material.node_tree.nodes.new('ShaderNodeTexImage')
+        texImage.image = diffuseTex.image
+        material.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+
+        return material
+
+    def createNormalMap(self, material, normalTex):
+        if(material.node_tree):
+            nrmImage = material.node_tree.nodes.new('ShaderNodeTexImage')
+            nrmImage.image = normalTex.image
+            nrmImage.image.colorspace_settings.name = 'Non-Color'
+            mappingNode = material.node_tree.nodes.new('ShaderNodeNormalMap')
+            material.node_tree.links.new(mappingNode.inputs['Color'], nrmImage.outputs['Color'])
+            bsdf = material.node_tree.nodes["Principled BSDF"]
+            material.node_tree.links.new(bsdf.inputs['Normal'], mappingNode.outputs['Normal'])
+
+        return 
+
+    def createEmissionShader(self, material, litTexture):
+        if(material.node_tree):
+            litImage = material.node_tree.nodes.new('ShaderNodeTexImage')
+            litImage.image = litTexture.image
+            EmissionNode = material.node_tree.nodes.new('ShaderNodeEmission')
+            material.node_tree.links.new(EmissionNode.inputs['Color'], litImage.outputs['Color'])
+            bsdf = material.node_tree.nodes["Principled BSDF"]
+            mixShader = material.node_tree.nodes.new('ShaderNodeMixShader')
+            materialOutput = material.node_tree.nodes['Material Output']
+            material.node_tree.links.new(mixShader.inputs[1], EmissionNode.outputs['Emission'])
+            material.node_tree.links.new(materialOutput.inputs['Surface'], mixShader.outputs['Shader']) 
+            material.node_tree.links.new(mixShader.inputs[2], bsdf.outputs['BSDF'])            
+
+        return         
+
     def getOrigin(self, keyframes):
         # if the animation contains rotation, the origin may be different
         origin = Vector((0,0,0))
@@ -340,30 +397,27 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'TEXTURE'):
                 texfilename = line[1]
-                # Create texture
-                tex = bpy.data.textures.new('Texture', type = 'IMAGE')
-                try:
-                    tex.image = bpy.data.images.load("%s\\%s" % (os.path.dirname(self.filepath), texfilename))
-                except:
-                    # Try to load the image as .dds
-                    try:
-                        base = os.path.splitext(texfilename)[0]
-                        tex.image = bpy.data.images.load("%s\\%s" % (os.path.dirname(self.filepath), base + '.dds'))
-                    except:
-                        print('Cannot find image file: ' + texfilename)
-
-                tex.use_alpha = True
-
-                # Create and add a material
-                material = bpy.data.materials.new('Material')
-                # Add Texture to the Material via shader nodes
-                material.use_nodes = True
-
-                bsdf = material.node_tree.nodes["Principled BSDF"]
-                texImage = material.node_tree.nodes.new('ShaderNodeTexImage')
-                texImage.image = tex.image
-                material.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
+                tex = self.loadImageTexture(texfilename)
+                if(tex):
+                    #tex.use_alpha = True
+                    # TODO: create alpha if needed
+                    name = texfilename.split('.')[0]
+                    material = self.createBlenderMaterial(tex, name)
                 continue
+
+            if(line[0] == 'TEXTURE_NORMAL'):
+                if(material):
+                    texfilename = line[1]
+                    nrmtex = self.loadImageTexture(texfilename)
+                    if(nrmtex):
+                        self.createNormalMap(material, nrmtex)
+                continue
+
+            if(line[0] == 'TEXTURE_LIT'):
+                if(material):
+                    texfilename = line[1]
+                    littex = self.loadImageTexture(texfilename)
+                    self.createEmissionShader(material, littex)
 
             if(line[0] == '#'):
                 # if you export with debug mode, labels will be added for each object
@@ -486,7 +540,7 @@ class xplane11import(bpy.types.Operator):
 
             if(line[0] == 'ANIM_keyframe_loop'):
                 # TODO: add loop property
-                print('loop')
+                print('loop found')
 
             if(line[0] == 'ANIM_hide'):
                 # ANIM_hide <v1> <v2> <dataref>
