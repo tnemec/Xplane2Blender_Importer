@@ -45,7 +45,7 @@ import os
 bl_info = {
     "name": "Import X-Plane OBJ",
     "author": "Tony Nemec - original script by David C. Prue",
-    "version": (0,1,0),
+    "version": (0,1,1),
     "blender": (2,80,0),
     "api": 36273,
     "location": "File > Import/Export > XPlane",
@@ -259,7 +259,6 @@ class xplane11import(bpy.types.Operator):
             bpy.ops.mesh.delete(type='VERT')
             bpy.ops.object.mode_set(mode='OBJECT')
         except Exception as e:
-            print(ob.name)
             print(e)
 
         return ob
@@ -300,6 +299,8 @@ class xplane11import(bpy.types.Operator):
             nrmImage.image = normalTex.image
             nrmImage.image.colorspace_settings.name = 'Non-Color'
             mappingNode = material.node_tree.nodes.new('ShaderNodeNormalMap')
+            mappingNode.space = 'BLENDER_OBJECT'
+
             material.node_tree.links.new(mappingNode.inputs['Color'], nrmImage.outputs['Color'])
             bsdf = material.node_tree.nodes["Principled BSDF"]
             material.node_tree.links.new(bsdf.inputs['Normal'], mappingNode.outputs['Normal'])
@@ -314,6 +315,8 @@ class xplane11import(bpy.types.Operator):
             material.node_tree.links.new(EmissionNode.inputs['Color'], litImage.outputs['Color'])
             bsdf = material.node_tree.nodes["Principled BSDF"]
             mixShader = material.node_tree.nodes.new('ShaderNodeMixShader')
+            mixShader.inputs[0].default_value = 1.0
+
             materialOutput = material.node_tree.nodes['Material Output']
             material.node_tree.links.new(mixShader.inputs[1], EmissionNode.outputs['Emission'])
             material.node_tree.links.new(materialOutput.inputs['Surface'], mixShader.outputs['Shader']) 
@@ -321,20 +324,31 @@ class xplane11import(bpy.types.Operator):
 
         return         
 
-    def getOrigin(self, keyframes):
-        # if the animation contains rotation, the origin may be different
+    def getOrigins(self, keyframes):
+        # if the animation contains rotation, the rotation origin may be different
         origin = Vector((0,0,0))
-        tempOrigin = Vector((0,0,0))
+        tempOrigin = 0
+        rotOrigin = Vector((0,0,0))
+        hasRotOrigin = False
         for kf in keyframes:
             if(len(kf)):
                 if(kf[0] == 'loc'):
-                    # save the first translation position
+                    # save the translation position
                     tempOrigin = kf[1]
-                if(kf[0] == 'rot'):
+                    origin += kf[1]
+                if(kf[0] == 'rot' and hasRotOrigin == False):
                     # if rotation follows translation, save we'll use that as the origin
-                    origin = tempOrigin
-                    break;
-        return origin
+                    rotOrigin = tempOrigin
+                    hasRotOrigin = True
+
+        return [origin, rotOrigin]
+
+    def getMeshMedian(self, obj):
+        obj.update_from_editmode()
+        me = obj.data
+        verts_sel = [v.co for v in me.vertices]
+        pivot = sum(verts_sel, Vector()) / len(verts_sel)
+        return pivot
 
     def transformMeshOrigin(self, ob, origin):
         # used to move the mesh origin
@@ -484,6 +498,12 @@ class xplane11import(bpy.types.Operator):
                 trans1 = Vector( (trans_x, trans_y, trans_z) )
                 trans2 = Vector( (trans_x2, trans_y2, trans_z2) )              
 
+                
+                if(len(line) == 7):
+                    # position only translation
+                    dataref = 'none'
+                    keyframes.append( ('loc', trans1, 0, dataref) )                    
+
                 if(len(line) == 10):
                     # has a dataref
                     dataref = line[9]
@@ -492,6 +512,8 @@ class xplane11import(bpy.types.Operator):
                     # add two keyframes
                     keyframes.append( ('loc', trans1, param1, dataref) )
                     keyframes.append( ('loc', trans2, param2, dataref) )
+
+
                 continue
 
             if(line[0] == 'ANIM_trans_begin'):
@@ -607,6 +629,7 @@ class xplane11import(bpy.types.Operator):
                         # append to objects since this does not have a parent or child
                         objects = objects + anim['meshes']
 
+
                 # clear some vars
                 keyframes = []
                 use_trans = False
@@ -621,7 +644,9 @@ class xplane11import(bpy.types.Operator):
         for arm in armatures:
             # need to move the armature to the correct location based on rotations
             keyframes = arm['kf']
-            rotOrigin = self.getOrigin(keyframes)
+            origins = self.getOrigins(keyframes)
+            location = origins[0]
+            rotOrigin = origins[1]
             # create the armature 
             BlenderArm = self.createArmature( arm['label'], rotOrigin)
             # apply the keyframes to the armature
@@ -643,8 +668,11 @@ class xplane11import(bpy.types.Operator):
         for index, obj in enumerate(objects):
             meshObj = self.createBlenderObject(obj)
             if(len(obj['kf'])):
-                rotOrigin = self.getOrigin(obj['kf'])
-                self.transformMeshOrigin(meshObj, rotOrigin)
+                origins = self.getOrigins(obj['kf'])
+                location = origins[0]
+                rotOrigin = origins[1]
+                if(location != rotOrigin):
+                    self.transformMeshOrigin(meshObj, rotOrigin)
                 self.translateObject(meshObj, rotOrigin)
                 # apply object animation keyframes
                 self.createKeyframes(obj['kf'], meshObj)
