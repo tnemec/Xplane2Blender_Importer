@@ -314,6 +314,7 @@ class xplane11import(bpy.types.Operator):
 
         bsdf = material.node_tree.nodes["Principled BSDF"]
         texImage = material.node_tree.nodes.new('ShaderNodeTexImage')
+        texImage.location = -350, 350
         texImage.image = diffuseTex.image
         material.node_tree.links.new(bsdf.inputs['Base Color'], texImage.outputs['Color'])
 
@@ -322,9 +323,11 @@ class xplane11import(bpy.types.Operator):
     def createNormalMap(self, material, normalTex):
         if(material.node_tree):
             nrmImage = material.node_tree.nodes.new('ShaderNodeTexImage')
+            nrmImage.location = -650, -50
             nrmImage.image = normalTex.image
             nrmImage.image.colorspace_settings.name = 'Non-Color'
             mappingNode = material.node_tree.nodes.new('ShaderNodeNormalMap')
+            mappingNode.location = -300, -50
             mappingNode.space = 'BLENDER_OBJECT'
 
             material.node_tree.links.new(mappingNode.inputs['Color'], nrmImage.outputs['Color'])
@@ -336,14 +339,18 @@ class xplane11import(bpy.types.Operator):
     def createEmissionShader(self, material, litTexture):
         if(material.node_tree):
             litImage = material.node_tree.nodes.new('ShaderNodeTexImage')
+            litImage.location = -650, -350
             litImage.image = litTexture.image
             EmissionNode = material.node_tree.nodes.new('ShaderNodeEmission')
+            EmissionNode.location = -300, -350
             material.node_tree.links.new(EmissionNode.inputs['Color'], litImage.outputs['Color'])
             bsdf = material.node_tree.nodes["Principled BSDF"]
             mixShader = material.node_tree.nodes.new('ShaderNodeMixShader')
+            mixShader.location = 300, -200
             mixShader.inputs[0].default_value = 0.0
 
             materialOutput = material.node_tree.nodes['Material Output']
+            materialOutput.location = 500, 150
             material.node_tree.links.new(mixShader.inputs[2], EmissionNode.outputs['Emission'])
             material.node_tree.links.new(materialOutput.inputs['Surface'], mixShader.outputs['Shader']) 
             material.node_tree.links.new(mixShader.inputs[1], bsdf.outputs['BSDF'])            
