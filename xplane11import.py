@@ -341,7 +341,7 @@ class xplane11import(bpy.types.Operator):
             material.node_tree.links.new(EmissionNode.inputs['Color'], litImage.outputs['Color'])
             bsdf = material.node_tree.nodes["Principled BSDF"]
             mixShader = material.node_tree.nodes.new('ShaderNodeMixShader')
-            mixShader.inputs[0].default_value = 1.0
+            mixShader.inputs[0].default_value = 0.0
 
             materialOutput = material.node_tree.nodes['Material Output']
             material.node_tree.links.new(mixShader.inputs[2], EmissionNode.outputs['Emission'])
