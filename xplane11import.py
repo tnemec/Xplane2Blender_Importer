@@ -111,6 +111,7 @@ class xplane11import(bpy.types.Operator):
 
                         # set the dataref value
                         ob.xplane.datarefs[dataref_index].value = kf[2]
+
                         # add the xplane dataref keyframe
                         bpy.ops.object.add_xplane_dataref_keyframe(index=dataref_index)
                     except Exception as e:
@@ -167,6 +168,10 @@ class xplane11import(bpy.types.Operator):
                     except Exception as e:
                         print(self.getMessage('dataref'))
                         print(e)
+
+                if(kf[0] == 'loop'):
+                    # not really a keyframe, this just sets the loop value
+                    ob.xplane.datarefs[dataref_index].loop = kf[1]
 
                 # end kf loop
 
@@ -318,9 +323,9 @@ class xplane11import(bpy.types.Operator):
             mixShader.inputs[0].default_value = 1.0
 
             materialOutput = material.node_tree.nodes['Material Output']
-            material.node_tree.links.new(mixShader.inputs[1], EmissionNode.outputs['Emission'])
+            material.node_tree.links.new(mixShader.inputs[2], EmissionNode.outputs['Emission'])
             material.node_tree.links.new(materialOutput.inputs['Surface'], mixShader.outputs['Shader']) 
-            material.node_tree.links.new(mixShader.inputs[2], bsdf.outputs['BSDF'])            
+            material.node_tree.links.new(mixShader.inputs[1], bsdf.outputs['BSDF'])            
 
         return         
 
@@ -333,11 +338,12 @@ class xplane11import(bpy.types.Operator):
         for kf in keyframes:
             if(len(kf)):
                 if(kf[0] == 'loc'):
-                    # save the translation position
+                    # save the translation position preceding rot
                     tempOrigin = kf[1]
+                    # accumulate all translations for the obj location origin
                     origin += kf[1]
                 if(kf[0] == 'rot' and hasRotOrigin == False):
-                    # if rotation follows translation, save we'll use that as the origin
+                    # if rotation follows translation, save we'll use that as the rotation origin
                     rotOrigin = tempOrigin
                     hasRotOrigin = True
 
@@ -356,6 +362,7 @@ class xplane11import(bpy.types.Operator):
         return
 
     def translateObject(self, ob, location):
+        # used to move the entire object position
         ob.matrix_world.translation += location
         return
 
@@ -536,7 +543,7 @@ class xplane11import(bpy.types.Operator):
                     # has a dataref
                     dataref = line[8]
                     # axis gets mapped as XZY because that will be Blenders XYZ
-                    axis = (float(line[1]), float(line[3]), float(line[2]))
+                    axis = (float(line[1]), (float(line[3]) * -1), float(line[2]))
                     r1 = float(line[4])
                     r2 = float(line[5])
                     v1 = float(line[6])
@@ -561,8 +568,8 @@ class xplane11import(bpy.types.Operator):
                 continue
 
             if(line[0] == 'ANIM_keyframe_loop'):
-                # TODO: add loop property
-                print('loop found')
+                # add dataref loop property
+                keyframes.append( ('loop', float(line[1])) )
 
             if(line[0] == 'ANIM_hide'):
                 # ANIM_hide <v1> <v2> <dataref>
@@ -649,6 +656,10 @@ class xplane11import(bpy.types.Operator):
             rotOrigin = origins[1]
             # create the armature 
             BlenderArm = self.createArmature( arm['label'], rotOrigin)
+            # set the label to the actual name of the Blender object
+            # as there could already be an exisiting object with the desired label
+            arm['objName'] = BlenderArm.name
+
             # apply the keyframes to the armature
             self.createKeyframes(keyframes, BlenderArm)
 
@@ -659,6 +670,15 @@ class xplane11import(bpy.types.Operator):
                 self.transformMeshOrigin(meshObj, BlenderArm.location)
                 # parent it to the armature
                 self.addChild(BlenderArm, meshObj) 
+
+        # fix the parent property to match the actual names
+        for arm in armatures:
+            if(arm['parent'] != ''):
+                for arm2 in armatures:
+                    # find this parent
+                    if(arm2['label'] == arm['parent']):
+                        arm['parent'] = arm2['objName']
+
 
         # return to frame 0
         bpy.context.scene.frame_set(0)
@@ -683,7 +703,7 @@ class xplane11import(bpy.types.Operator):
             if(arm['parent'] != ''):
                 try:
                     parentArm = bpy.context.view_layer.objects[arm['parent']]
-                    childArm = bpy.context.view_layer.objects[arm['label']]
+                    childArm = bpy.context.view_layer.objects[arm['objName']]
                     # reset the child position
                     childArm.location = childArm.location - parentArm.location
                     self.addChild(parentArm, childArm)
