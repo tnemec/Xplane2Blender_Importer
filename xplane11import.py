@@ -28,10 +28,19 @@
 #
 #---------------------------------------------------------------------------    
 
+# Last Changes: July 2020
 
 # imports obj format up to X-Plane 11 into Blender 2.8+
+# Tested with Blender 2.83
+
+# This script adds the X-plane OBJ formatted aircraft files into the File -> Import menu
+# It will create a new collection and all the mesh data and attempt to add animation keyframes
+
+# Install the latest Xplane2Blender plugin to be able to import X-Plane features in addition to the mesh data.
 
 # Orginal script: https://github.com/daveprue/XPlane2Blender
+
+
 
 
 import bpy
@@ -64,8 +73,18 @@ class xplane11import(bpy.types.Operator):
         global collection
         print("execute %s" % self.filepath)
         # create new collection to match filename
-        collection = bpy.data.collections.new(self.filepath.split('\\')[-1].split('.')[0])
+        collName = self.filepath.split('\\')[-1].split('.')[0]
+        collection = bpy.data.collections.new(collName)
         bpy.context.scene.collection.children.link(collection)
+        # any time the xplane class is used, that code requires having the Xplane2Blender plugin enabled
+        try:
+            # name the xplane layer/collection property in the scene properties window
+            collection.xplane.layer.name = collName
+            # make this a root collection so it can be exported
+            collection.xplane.is_exportable_collection = True
+        except:
+            print
+
         # do the import      
         numObj = self.run((0,0,0))
         print('Imported %d objects' % numObj)
@@ -78,6 +97,8 @@ class xplane11import(bpy.types.Operator):
     def getMessage(self, messageType):
         if(messageType == 'dataref'):
             return 'Failed to create XPlane dataref. Make sure you have the XPlane2Blender plugin enabled.'
+        if(messageType == 'xplane'):
+            return 'If have the XPlane2Blender plugin enabled, you can enable many more features.'
         return ''
 
 
@@ -310,7 +331,7 @@ class xplane11import(bpy.types.Operator):
             bsdf = material.node_tree.nodes["Principled BSDF"]
             material.node_tree.links.new(bsdf.inputs['Normal'], mappingNode.outputs['Normal'])
 
-        return 
+        return material
 
     def createEmissionShader(self, material, litTexture):
         if(material.node_tree):
@@ -327,7 +348,7 @@ class xplane11import(bpy.types.Operator):
             material.node_tree.links.new(materialOutput.inputs['Surface'], mixShader.outputs['Shader']) 
             material.node_tree.links.new(mixShader.inputs[1], bsdf.outputs['BSDF'])            
 
-        return         
+        return material        
 
     def getOrigins(self, keyframes):
         # if the animation contains rotation, the rotation origin may be different
@@ -424,6 +445,14 @@ class xplane11import(bpy.types.Operator):
                     # TODO: create alpha if needed
                     name = texfilename.split('.')[0]
                     material = self.createBlenderMaterial(tex, name)
+                    # set the layer/collection texture property
+                    # just in case this is needed
+                    # the exporter should be able to autodetect the texture from the material
+                    # 
+                    try:
+                        collection.xplane.layer.texture = texfilename
+                    except:
+                        print('Could not assign texture to layer props')
                 continue
 
             if(line[0] == 'TEXTURE_NORMAL'):
@@ -432,13 +461,22 @@ class xplane11import(bpy.types.Operator):
                     nrmtex = self.loadImageTexture(texfilename)
                     if(nrmtex):
                         self.createNormalMap(material, nrmtex)
-                continue
+                        try:
+                            collection.xplane.layer.texture_normal = texfilename
+                        except:
+                            print('Could not assign normal texture to layer props')
+                    continue
 
             if(line[0] == 'TEXTURE_LIT'):
                 if(material):
                     texfilename = line[1]
                     littex = self.loadImageTexture(texfilename)
-                    self.createEmissionShader(material, littex)
+                    if(littex):
+                        self.createEmissionShader(material, littex)
+                        try:
+                            collection.xplane.layer.texture_lit = texfilename
+                        except:
+                            print('Could not assign lit texture to layer props')
 
             if(line[0] == '#'):
                 # if you export with debug mode, labels will be added for each object
